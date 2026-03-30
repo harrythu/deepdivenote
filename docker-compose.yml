@@ -1,0 +1,59 @@
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:16-alpine
+    container_name: deepdivenote-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deepdivenote
+      POSTGRES_PASSWORD: deepdivenote_dev_password
+      POSTGRES_DB: deepdivenote
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepdivenote"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (用于任务队列)
+  redis:
+    image: redis:7-alpine
+    container_name: deepdivenote-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # 可选: MinIO 对象存储 (后期使用)
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: deepdivenote-minio
+  #   restart: unless-stopped
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   volumes:
+  #     - minio_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+  #     interval: 30s
+  #     timeout: 20s
+  #     retries: 3
+
+volumes:
+  postgres_data:
+  redis_data:
+  # minio_data:

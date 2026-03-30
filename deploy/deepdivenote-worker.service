@@ -1,0 +1,30 @@
+[Unit]
+Description=DeepDiveNote Worker - Transcription Polling
+After=network.target redis.service
+Requires=redis.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/deepdivenote
+ExecStart=/usr/bin/npm run worker
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s TERM $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# 环境变量
+Environment=NODE_ENV=production
+
+# 安全设置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/deepdivenote/prisma
+ReadWritePaths=/var/www/deepdivenote/uploads
+
+[Install]
+WantedBy=multi-user.target

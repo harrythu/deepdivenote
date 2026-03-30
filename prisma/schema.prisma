@@ -1,0 +1,99 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 会议记录主表
+model Meeting {
+  id          String   @id @default(cuid())
+  title       String   @default("未命名会议")
+
+  // 音频文件信息
+  audioPath   String?  @map("audio_path")         // 音频文件存储路径
+  audioSize   Int?     @map("audio_size")         // 文件大小（字节）
+  audioFormat String?  @map("audio_format")       // 文件格式 (mp3, wav, m4a等)
+  duration    Int?                                 // 音频时长（秒）
+
+  // 处理状态
+  status      MeetingStatus @default(PENDING)
+  progress    Int           @default(0)            // 处理进度 0-100
+  errorMessage String?      @map("error_message")  // 错误信息
+
+  // 时间戳
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // 关联关系
+  transcription Transcription?
+  summary       Summary?
+
+  @@map("meetings")
+  @@index([status])
+  @@index([createdAt])
+}
+
+// 会议状态枚举
+enum MeetingStatus {
+  PENDING        // 等待处理
+  UPLOADING      // 上传中
+  TRANSCRIBING   // 转写中
+  SUMMARIZING    // 生成纪要中
+  COMPLETED      // 已完成
+  FAILED         // 失败
+}
+
+// 转写结果表
+model Transcription {
+  id         String   @id @default(cuid())
+  meetingId  String   @unique @map("meeting_id")
+  meeting    Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // 转写内容
+  fullText   String   @map("full_text")             // 完整逐字稿
+  segments   Json?                                   // 分段数据 (时间轴 + 文本)
+  language   String?                                 // 检测到的语言
+
+  // 元数据
+  wordCount  Int?     @map("word_count")            // 字数统计
+  confidence Float?                                  // 平均置信度
+  model      String   @default("whisper-1")         // 使用的模型
+
+  // 时间戳
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("transcriptions")
+  @@index([meetingId])
+}
+
+// 会议纪要表
+model Summary {
+  id           String   @id @default(cuid())
+  meetingId    String   @unique @map("meeting_id")
+  meeting      Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // 纪要内容
+  content      String                               // 完整会议纪要 (Markdown格式)
+  keyPoints    Json?    @map("key_points")          // 关键要点数组
+  actionItems  Json?    @map("action_items")        // 待办事项数组
+  participants Json?                                // 参与者列表 (如果能识别)
+  tags         Json?                                // 标签/关键词（JSON 数组）
+
+  // 元数据
+  model        String   @default("claude-3-5-sonnet") // 使用的模型
+  tokensUsed   Int?     @map("tokens_used")         // Token使用量
+
+  // 时间戳
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("summaries")
+  @@index([meetingId])
+}
