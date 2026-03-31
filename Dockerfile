@@ -8,13 +8,14 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci
 
-# Rebuild the native dependencies
+# Rebuild the native dependencies and build
 FROM base AS rebuild
 RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
+RUN npm run build
 
 # Production image
 FROM base AS runner
@@ -26,8 +27,8 @@ RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
 COPY --from=rebuild /app/public ./public
-COPY --from=rebuild --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=rebuild --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=rebuild /app/.next/standalone ./
+COPY --from=rebuild /app/.next/static ./.next/static
 COPY --from=rebuild /app/prisma ./prisma
 COPY --from=rebuild /app/scripts ./scripts
 
