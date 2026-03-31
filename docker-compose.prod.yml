@@ -9,8 +9,8 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgresql://deepdivenote:deepdivenote_prod_password@postgres:5432/deepdivenote
+      REDIS_URL: redis://redis:6379
       QWEN_API_KEY: ${QWEN_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ZENMUX_API_KEY: ${ZENMUX_API_KEY}
@@ -20,7 +20,10 @@ services:
       ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET}
       ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT}
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   # 后台转写 Worker
   worker:
@@ -32,11 +35,30 @@ services:
     command: ["npm", "run", "worker"]
     environment:
       NODE_ENV: production
-      DATABASE_URL: ${DATABASE_URL}
-      REDIS_URL: ${REDIS_URL}
+      DATABASE_URL: postgresql://deepdivenote:deepdivenote_prod_password@postgres:5432/deepdivenote
+      REDIS_URL: redis://redis:6379
       QWEN_API_KEY: ${QWEN_API_KEY}
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: deepdivenote-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: deepdivenote
+      POSTGRES_PASSWORD: deepdivenote_prod_password
+      POSTGRES_DB: deepdivenote
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U deepdivenote"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -53,4 +75,5 @@ services:
       retries: 5
 
 volumes:
+  postgres_data:
   redis_data:
