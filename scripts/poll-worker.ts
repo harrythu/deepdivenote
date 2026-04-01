@@ -8,7 +8,7 @@
 
 import { prisma } from '../lib/db/prisma'
 import { createQwenASRService } from '../lib/services/qwen-asr'
-import { MeetingStatus } from '@prisma/client'
+import { MeetingStatus, Prisma } from '@prisma/client'
 
 async function pollTranscriptions() {
   try {
@@ -64,7 +64,7 @@ async function pollTranscriptions() {
             data: {
               meetingId: meeting.id,
               fullText: transcriptionResult.text,
-              segments: transcriptionResult.segments,
+              segments: transcriptionResult.segments ? JSON.parse(JSON.stringify(transcriptionResult.segments)) : undefined,
               language: transcriptionResult.language,
               wordCount: transcriptionResult.text.length,
             },

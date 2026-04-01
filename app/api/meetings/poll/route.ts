@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { createQwenASRService } from '@/lib/services/qwen-asr'
-import { MeetingStatus } from '@prisma/client'
+import { MeetingStatus, Prisma } from '@prisma/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
             data: {
               meetingId: meeting.id,
               fullText: transcriptionResult.text,
-              segments: transcriptionResult.segments,
+              segments: transcriptionResult.segments ? JSON.parse(JSON.stringify(transcriptionResult.segments)) : undefined,
               language: transcriptionResult.language,
               wordCount: transcriptionResult.text.length,
             },
