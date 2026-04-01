@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://deepdovenote:deepdivenote_dev_password@postgres:5432/deepdivenote
+      DATABASE_URL: postgresql://deepdivenote:deepdivenote_dev_password@postgres:5432/deepdivenote
       REDIS_URL: redis://redis:6379
       QWEN_API_KEY: ${QWEN_API_KEY}
     depends_on:
