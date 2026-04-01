@@ -1,5 +1,5 @@
 # Multi-platform Dockerfile for Next.js App
-# 构建: docker buildx build --platform linux/amd64 --load -t deepdovenote-app:latest -f Dockerfile.app .
+# 构建: docker buildx build --platform linux/amd64 --load -t deepdivenote-app:latest -f Dockerfile.app .
 
 FROM --platform=$BUILDPLATFORM node:20-alpine AS base
 

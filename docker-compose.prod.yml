@@ -3,13 +3,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.app
-    container_name: deepdovenote-app
+    container_name: deepdivenote-app
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://deepdivenote:deepdovenote_prod_password@postgres:5432/deepdivenote
+      DATABASE_URL: postgresql://deepdivenote:deepdivenote_dev_password@postgres:5432/deepdivenote
       REDIS_URL: redis://redis:6379
       QWEN_API_KEY: ${QWEN_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -30,11 +30,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
-    container_name: deepdovenote-worker
+    container_name: deepdivenote-worker
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://deepdovenote:deepdovenote_prod_password@postgres:5432/deepdivenote
+      DATABASE_URL: postgresql://deepdovenote:deepdivenote_dev_password@postgres:5432/deepdivenote
       REDIS_URL: redis://redis:6379
       QWEN_API_KEY: ${QWEN_API_KEY}
     depends_on:
@@ -45,11 +45,11 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: deepdovenote-postgres
+    container_name: deepdivenote-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: deepdivenote
-      POSTGRES_PASSWORD: deepdovenote_prod_password
+      POSTGRES_PASSWORD: deepdivenote_dev_password
       POSTGRES_DB: deepdivenote
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -61,7 +61,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: deepdovenote-redis
+    container_name: deepdivenote-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
