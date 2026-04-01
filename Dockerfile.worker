@@ -41,6 +41,7 @@ COPY --from=rebuild /app/node_modules ./node_modules
 COPY --from=rebuild /app/prisma ./prisma
 COPY --from=rebuild /app/scripts ./scripts
 COPY --from=rebuild /app/lib ./lib
+COPY --from=rebuild /app/tsconfig.json ./tsconfig.json
 
 USER nextjs
 

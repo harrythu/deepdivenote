@@ -35,7 +35,6 @@ COPY --from=rebuild /app/public ./public
 COPY --from=rebuild /app/.next/standalone ./
 COPY --from=rebuild /app/.next/static ./.next/static
 COPY --from=rebuild /app/prisma ./prisma
-COPY --from=rebuild /app/prisma.config.ts ./prisma.config.ts
 
 USER nextjs
 
