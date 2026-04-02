@@ -1,0 +1,205 @@
+中文词汇 (Chinese Vocabulary)
+变换器架构
+注意力机制
+自注意力
+多头注意力
+仅编码器架构
+仅解码器架构
+混合专家模型
+位置编码
+旋转位置嵌入
+缩放法则
+参数量
+特征元
+词表
+嵌入向量
+层归一化
+预训练数据
+语料库
+数据清洗
+数据去重
+分词
+字节对编码
+合成数据
+数据增强
+公共爬虫数据集
+质量过滤
+预训练
+有监督微调
+对齐
+基于人类反馈的强化学习
+直接偏好优化
+近端策略优化
+奖励模型
+损失函数
+梯度下降
+学习率
+预热步数
+过拟合
+灾难性遗忘
+检查点
+超参数
+图形处理器
+数据并行
+模型并行
+流水线并行
+张量并行
+零冗余优化器
+浮点运算次数
+集群
+无限带宽技术
+显存
+梯度累积
+混合精度训练
+低秩自适应
+量化微调
+适配器
+提示词微调
+前缀微调
+全参数微调
+推理
+量化
+剪枝
+知识蒸馏
+键值缓存
+投机采样
+闪存注意力机制
+吞吐量
+延迟
+首字延迟
+分页注意力
+连续批处理
+温度系数
+核采样
+束搜索
+贪婪搜索
+重复惩罚
+停止序列
+提示工程
+零样本学习
+少样本学习
+上下文学习
+思维链
+检索增强生成
+向量数据库
+语义搜索
+智能体
+函数调用
+幻觉
+系统提示词
+推理与行动
+基准测试
+图灵测试
+越狱
+毒性过滤
+上下文窗口
+多模态
+推理引擎
+模型部署
+微调
+
+
+英文词汇 (English Vocabulary)
+Transformer
+Attention Mechanism
+Self-Attention
+Multi-Head Attention
+Encoder-Only
+Decoder-Only
+Mixture of Experts
+Positional Encoding
+Rotary Positional Embedding
+Scaling Laws
+Parameters
+Tokens
+Vocabulary
+Embedding
+Layer Normalization
+Pre-training Data
+Corpus
+Data Cleaning
+Deduplication
+Tokenization
+Byte Pair Encoding
+Synthetic Data
+Data Augmentation
+Common Crawl
+Quality Filtering
+Pre-training
+Supervised Fine-Tuning
+Alignment
+Reinforcement Learning from Human Feedback
+Direct Preference Optimization
+Proximal Policy Optimization
+Reward Model
+Loss Function
+Gradient Descent
+Learning Rate
+Warmup Steps
+Overfitting
+Catastrophic Forgetting
+Checkpoint
+Hyperparameter
+Graphics Processing Unit
+Data Parallelism
+Model Parallelism
+Pipeline Parallelism
+Tensor Parallelism
+Zero Redundancy Optimizer
+Floating Point Operations
+Cluster
+InfiniBand
+NVLink
+Video RAM
+Gradient Accumulation
+Mixed Precision Training
+Low-Rank Adaptation
+Quantized LoRA
+Adapter
+Prompt Tuning
+Prefix Tuning
+Full Fine-tuning
+Inference
+Quantization
+Pruning
+Knowledge Distillation
+KV Cache
+Speculative Decoding
+FlashAttention
+Throughput
+Latency
+Time to First Token
+PagedAttention
+Continuous Batching
+Temperature
+Top-P
+Top-K
+Beam Search
+Greedy Decoding
+Repetition Penalty
+Stop Sequences
+Prompt Engineering
+Zero-Shot
+Few-Shot
+In-Context Learning
+Chain of Thought
+Retrieval-Augmented Generation
+Vector Database
+Semantic Search
+LangChain
+Agent
+Function Calling
+Hallucination
+System Prompt
+Reasoning and Acting
+Benchmark
+Turing Test
+Jailbreaking
+Toxicity Filtering
+Context Window
+Multi-modal
+Inference Engine
+Model Deployment
+Fine-tuning
+
+---

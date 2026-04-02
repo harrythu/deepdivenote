@@ -26,7 +26,7 @@ export default function UploadPage() {
               上传会议录音
             </h1>
             <p className="text-lg text-slate-600 dark:text-slate-300">
-              支持最长12小时录音，自动生成逐字稿和会议纪要
+              支持音频转写，自动生成逐字稿和会议纪要（最大 500MB）
             </p>
           </div>
 

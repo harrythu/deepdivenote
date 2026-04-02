@@ -303,11 +303,18 @@ export default function MeetingPage({
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="prose dark:prose-invert max-w-none">
-                  <p className="whitespace-pre-wrap text-sm break-words overflow-wrap-anywhere">
-                    {correctedText || meeting.transcription.fullText}
-                  </p>
-                </div>
+                {correcting ? (
+                  <div className="flex items-center gap-3 py-8 text-purple-600">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                    <span className="text-sm">纠错进行中，请耐心等待</span>
+                  </div>
+                ) : (
+                  <div className="prose dark:prose-invert max-w-none">
+                    <p className="whitespace-pre-wrap text-sm break-words overflow-wrap-anywhere">
+                      {correctedText || meeting.transcription.fullText}
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -402,6 +409,25 @@ export default function MeetingPage({
                     <p className="text-sm text-slate-500">没有发现需要纠错的地方，文字稿已经很完善了！</p>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 会议纪要生成中 */}
+          {meeting.status === 'SUMMARIZING' && (
+            <Card className="mb-6 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600"></div>
+                  <div>
+                    <p className="font-medium text-amber-900 dark:text-amber-100">
+                      生成纪要进行中，请耐心等待
+                    </p>
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
+                      正在生成会议纪要，请稍候
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           )}

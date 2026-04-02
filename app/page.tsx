@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
+import { VocabularySelector } from '@/components/VocabularySelector'
+import { Plus, X, Copy, Check } from 'lucide-react'
 
 // 深海主题 Logo
 function DeepDiveLogo({ className = "w-12 h-12" }: { className?: string }) {
@@ -67,9 +69,19 @@ export default function Home() {
   const [progress, setProgress] = useState(0)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
+  // 模式选择：audio=音频转写模式, text=文字稿模式
+  const [mode, setMode] = useState<'audio' | 'text'>('audio')
+
+  // 文字稿模式相关状态
+  const [textContent, setTextContent] = useState('')
+  const [textTitle, setTextTitle] = useState('')
+  const [textFile, setTextFile] = useState<File | null>(null)
+
   // 纠错相关状态
   const [topic, setTopic] = useState('')
   const [vocabulary, setVocabulary] = useState('')
+  const [selectedVocabulary, setSelectedVocabulary] = useState<string[]>([])
+  const [showVocabularySelector, setShowVocabularySelector] = useState(false)
   const [correcting, setCorrecting] = useState(false)
   const [originalText, setOriginalText] = useState('')
   const [correctedText, setCorrectedText] = useState('')
@@ -99,6 +111,18 @@ export default function Home() {
     { id: 'custom', name: '自定义模板' },
   ])
 
+  // 模型选择相关状态
+  const [availableModels, setAvailableModels] = useState<{id: string; name: string; category: string; description: string; maxTokens: number}[]>([])
+  const [selectedModel, setSelectedModel] = useState('openai/gpt-5.4-mini')
+  const [modelMessage, setModelMessage] = useState('')
+  const [summaryCopied, setSummaryCopied] = useState(false)
+
+  // 获取当前选中模型的分类
+  const getSelectedModelCategory = () => {
+    const model = availableModels.find(m => `openai/${m.id}` === selectedModel || m.id === selectedModel)
+    return model?.category || 'budget'
+  }
+
   // 加载模板内容
   useEffect(() => {
     const loadTemplates = async () => {
@@ -114,6 +138,52 @@ export default function Home() {
     }
     loadTemplates()
   }, [])
+
+  // 加载模型列表
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const res = await fetch('/api/models')
+        const data = await res.json()
+        if (data.success) {
+          setAvailableModels(data.data.models)
+          // 设置默认模型
+          const defaultModel = data.data.models.find((m: any) => m.id === data.data.default)
+          if (defaultModel) {
+            setSelectedModel(defaultModel.id)
+            // 设置默认提示语
+            setModelMessage(defaultModel.category === 'flagship' ? '完蛋，你要让我破产' : '很好，你很有节约意识')
+          }
+        }
+      } catch (error) {
+        console.error('加载模型列表失败:', error)
+      }
+    }
+    loadModels()
+  }, [])
+
+  // 模型变化时更新提示语
+  const handleModelChange = (modelId: string) => {
+    setSelectedModel(modelId)
+    const model = availableModels.find(m => m.id === modelId)
+    if (model) {
+      // 旗舰模型：完蛋，你要让我破产；性价比模型：很好，你很有节约意识
+      setModelMessage(model.category === 'flagship' ? '完蛋，你要让我破产' : '很好，你很有节约意识')
+    }
+  }
+
+  // 复制纪要内容到剪贴板
+  const copySummaryToClipboard = async () => {
+    if (!summaryResult?.content) return
+    try {
+      await navigator.clipboard.writeText(summaryResult.content)
+      setSummaryCopied(true)
+      toast.success('已复制到剪贴板')
+      setTimeout(() => setSummaryCopied(false), 2000)
+    } catch (error) {
+      toast.error('复制失败')
+    }
+  }
 
   // 同步滚动
   const originalRef = useRef<HTMLTextAreaElement>(null)
@@ -175,7 +245,7 @@ export default function Home() {
     'audio/flac': ['.flac'],
     'audio/ogg': ['.ogg'],
   }
-  const maxSize = 3 * 1024 * 1024 * 1024
+  const maxSize = 500 * 1024 * 1024
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -194,13 +264,14 @@ export default function Home() {
     setMeetingId('')
     setTranscribing(false)
     setSelectedFile(null)
+    setSelectedVocabulary([])
     toast.success('已准备开始新上传')
   }
 
   const onDropRejected = useCallback((fileRejections: any[]) => {
     const error = fileRejections[0]?.errors[0]
     if (error?.code === 'file-too-large') {
-      toast.error('文件过大，最大支持3GB')
+      toast.error('文件过大，最大支持 500MB')
     } else {
       toast.error('不支持的文件格式')
     }
@@ -212,8 +283,126 @@ export default function Home() {
     accept: acceptedFormats,
     maxSize,
     multiple: false,
-    disabled: uploading,
+    disabled: uploading || mode !== 'audio',
   })
+
+  // 文字稿模式文件上传
+  const textAcceptedFormats = {
+    'text/plain': ['.txt'],
+    'text/markdown': ['.md'],
+    'application/pdf': ['.pdf'],
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+  }
+
+  const onTextDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      const file = acceptedFiles[0]
+      setTextFile(file)
+
+      const fileName = file.name.toLowerCase()
+
+      if (fileName.endsWith('.docx')) {
+        // 解析 Word 文件
+        const reader = new FileReader()
+        reader.onload = async (e) => {
+          try {
+            const arrayBuffer = e.target?.result as ArrayBuffer
+            const mammoth = (await import('mammoth')).default
+            const result = await mammoth.extractRawText({ arrayBuffer })
+            setTextContent(result.value)
+            toast.success(`已加载: ${file.name}`)
+          } catch (error) {
+            console.error('Word 解析失败:', error)
+            toast.error('Word 文件解析失败')
+          }
+        }
+        reader.readAsArrayBuffer(file)
+      } else if (fileName.endsWith('.pdf')) {
+        // 解析 PDF 文件
+        const reader = new FileReader()
+        reader.onload = async (e) => {
+          try {
+            const arrayBuffer = e.target?.result as ArrayBuffer
+            const { PDFParse } = await import('pdf-parse')
+            // 设置 workerSrc，使用 public 目录下的文件
+            PDFParse.setWorker('/pdf.worker.min.mjs')
+            const parser = new PDFParse({ data: new Uint8Array(arrayBuffer) })
+            const result = await parser.getText()
+            setTextContent(result.text)
+            toast.success(`已加载: ${file.name}`)
+          } catch (error) {
+            console.error('PDF 解析失败:', error)
+            toast.error('PDF 文件解析失败')
+          }
+        }
+        reader.readAsArrayBuffer(file)
+      } else {
+        // 解析 txt/md 文件
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          setTextContent(e.target?.result as string || '')
+          toast.success(`已加载: ${file.name}`)
+        }
+        reader.readAsText(file)
+      }
+    }
+  }, [])
+
+  const onTextDropRejected = useCallback((fileRejections: any[]) => {
+    toast.error('不支持的文件格式，请上传 .txt, .md, .docx 或 .pdf 文件')
+  }, [])
+
+  const { getRootProps: getTextRootProps, getInputProps: getTextInputProps, isDragActive: isTextDragActive } = useDropzone({
+    onDrop: onTextDrop,
+    onDropRejected: onTextDropRejected,
+    accept: textAcceptedFormats,
+    multiple: false,
+    disabled: mode !== 'text',
+  })
+
+  // 处理文字稿上传
+  const handleTextUpload = async () => {
+    const content = textContent.trim()
+    if (!content) {
+      toast.error('请输入或上传文字稿内容')
+      return
+    }
+
+    setUploading(true)
+    setProgress(0)
+    setMeetingId('')
+    setOriginalText('')
+    setCorrectedText('')
+    setCorrections([])
+    setSummaryResult(null)
+
+    try {
+      const res = await fetch('/api/text-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: textTitle || '文字稿',
+          content: content,
+        }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+
+      toast.success('文字稿上传成功！')
+      setMeetingId(data.data.meetingId)
+      setOriginalText(content)
+      setTranscribing(false)
+      setTextContent('')
+      setTextTitle('')
+      setTextFile(null)
+    } catch (error) {
+      console.error('文字稿上传失败:', error)
+      toast.error(error instanceof Error ? error.message : '上传失败')
+    } finally {
+      setUploading(false)
+    }
+  }
 
   // 加载会议
   const loadMeeting = async () => {
@@ -265,11 +454,10 @@ export default function Home() {
     setCorrecting(true)
     console.log('【纠错】发送请求...')
     try {
-      const vocabList = vocabulary.split(',').map(v => v.trim()).filter(v => v.length > 0)
       const res = await fetch(`/api/meetings/${meetingId}/correction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, vocabulary: vocabList }),
+        body: JSON.stringify({ topic, vocabulary: selectedVocabulary }),
       })
       console.log('【纠错】响应状态:', res.status)
       const data = await res.json()
@@ -296,7 +484,7 @@ export default function Home() {
     }
 
     setGeneratingSummary(true)
-    console.log('【纪要】开始生成，使用模板:', selectedTemplate)
+    console.log('【纪要】开始生成，使用模型:', selectedModel, '模板:', selectedTemplate)
     try {
       const res = await fetch(`/api/meetings/${meetingId}/summary`, {
         method: 'POST',
@@ -304,7 +492,9 @@ export default function Home() {
         body: JSON.stringify({
           transcription: textToSummarize,
           template: selectedTemplate,
-          customPrompt: selectedTemplate === 'custom' ? customPrompt : undefined
+          customPrompt: selectedTemplate === 'custom' ? customPrompt : undefined,
+          model: selectedModel,
+          maxTokens: availableModels.find(m => m.id === selectedModel)?.maxTokens || 64000,
         }),
       })
       console.log('【纪要】响应状态:', res.status)
@@ -354,7 +544,7 @@ export default function Home() {
                 开始新上传
               </Button>
             )}
-            <span className="text-xs text-slate-400">支持最长12小时录音</span>
+            <span className="text-xs text-slate-400">最大 500MB</span>
           </div>
         </div>
       </nav>
@@ -374,48 +564,172 @@ export default function Home() {
 
           {/* 上传区域 */}
           <div className="max-w-2xl mx-auto mb-16">
-            <div
-              {...getRootProps()}
-              className={`
-                p-12 rounded-2xl border-2 border-dashed cursor-pointer
-                transition-all duration-300
-                ${isDragActive
-                  ? 'border-slate-400 bg-slate-100 dark:bg-slate-900'
-                  : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600'
-                }
-                ${uploading ? 'opacity-50 cursor-not-allowed' : ''}
-              `}
-            >
-              <input {...getInputProps()} />
-              <div className="flex flex-col items-center">
-                <div className={`
-                  w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center mb-4
-                  transition-transform duration-300 ${isDragActive ? 'scale-110 rotate-6' : ''}
-                `}>
-                  <svg className="w-8 h-8 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
-                  </svg>
-                </div>
-                {isDragActive ? (
-                  <p className="text-lg font-medium text-slate-900 dark:text-white">松开以上传录音...</p>
-                ) : (
-                  <>
-                    <p className="text-lg font-medium text-slate-900 dark:text-white mb-2">
-                      拖拽录音文件到这里
-                    </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">
-                      或点击选择文件 · 支持 MP3, WAV, M4A, FLAC
-                    </p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
-                      最大 3GB · 约12小时录音
-                    </p>
-                  </>
-                )}
+            {/* 模式选择器 */}
+            <div className="flex justify-center mb-8">
+              <div className="inline-flex rounded-lg bg-slate-100 dark:bg-slate-900 p-1">
+                <button
+                  onClick={() => { setMode('audio'); setTextContent(''); setTextFile(null); setSelectedFile(null); }}
+                  className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
+                    mode === 'audio'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    </svg>
+                    上传音频
+                  </span>
+                </button>
+                <button
+                  onClick={() => { setMode('text'); setSelectedFile(null); }}
+                  className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${
+                    mode === 'text'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    上传文字稿
+                  </span>
+                </button>
               </div>
             </div>
 
-            {/* 已选文件 */}
-            {selectedFile && (
+            {/* 音频模式上传 */}
+            {mode === 'audio' && (
+              <div
+                {...getRootProps()}
+                className={`
+                  p-12 rounded-2xl border-2 border-dashed cursor-pointer
+                  transition-all duration-300
+                  ${isDragActive
+                    ? 'border-slate-400 bg-slate-100 dark:bg-slate-900'
+                    : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600'
+                  }
+                  ${uploading ? 'opacity-50 cursor-not-allowed' : ''}
+                `}
+              >
+                <input {...getInputProps()} />
+                <div className="flex flex-col items-center">
+                  <div className={`
+                    w-16 h-16 rounded-2xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center mb-4
+                    transition-transform duration-300 ${isDragActive ? 'scale-110 rotate-6' : ''}
+                  `}>
+                    <svg className="w-8 h-8 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                    </svg>
+                  </div>
+                  {isDragActive ? (
+                    <p className="text-lg font-medium text-slate-900 dark:text-white">松开以上传录音...</p>
+                  ) : (
+                    <>
+                      <p className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                        拖拽录音文件到这里
+                      </p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        或点击选择文件 · 支持 MP3, WAV, M4A, FLAC
+                      </p>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                        最大 500MB
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 文字稿模式上传 */}
+            {mode === 'text' && (
+              <div className="space-y-4">
+                {/* 标题输入 */}
+                <Input
+                  value={textTitle}
+                  onChange={(e) => setTextTitle(e.target.value)}
+                  placeholder="输入会议标题（可选）"
+                  className="bg-white dark:bg-slate-900"
+                />
+
+                {/* 文字稿拖拽上传 */}
+                <div
+                  {...getTextRootProps()}
+                  className={`
+                    p-8 rounded-2xl border-2 border-dashed cursor-pointer
+                    transition-all duration-300 text-center
+                    ${isTextDragActive
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-600'
+                    }
+                    ${uploading ? 'opacity-50 cursor-not-allowed' : ''}
+                  `}
+                >
+                  <input {...getTextInputProps()} />
+                  <div className="flex flex-col items-center">
+                    <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center mb-3">
+                      <svg className="w-6 h-6 text-slate-600 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    {isTextDragActive ? (
+                      <p className="text-blue-600 font-medium">松开以上传文字稿...</p>
+                    ) : (
+                      <>
+                        <p className="text-slate-900 dark:text-white font-medium mb-1">
+                          支持 .txt, .md, .docx, .pdf 文件
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          或点击选择文件
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* 已选文件 */}
+                {textFile && (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span className="flex-1 text-sm text-slate-700 dark:text-slate-300 truncate">{textFile.name}</span>
+                    <button onClick={() => { setTextFile(null); setTextContent(''); }} className="text-slate-400 hover:text-slate-600">
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                {/* 文字内容输入 */}
+                <div className="relative">
+                  <textarea
+                    value={textContent}
+                    onChange={(e) => setTextContent(e.target.value)}
+                    placeholder="或者直接在这里粘贴文字稿内容..."
+                    className="w-full h-64 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <div className="absolute bottom-3 right-3 text-xs text-slate-400">
+                    {textContent.length} 字符
+                  </div>
+                </div>
+
+                {/* 上传按钮 */}
+                <Button
+                  onClick={handleTextUpload}
+                  disabled={uploading || !textContent.trim()}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  {uploading ? '上传中...' : '开始处理'}
+                </Button>
+              </div>
+            )}
+
+            {/* 已选文件 - 仅音频模式 */}
+            {mode === 'audio' && selectedFile && (
               <Card className="mt-4 border-slate-200 dark:border-slate-800">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
@@ -503,8 +817,8 @@ export default function Home() {
               </Card>
             )}
 
-            {/* 转写中状态 - 当没有选中文件但正在转写时显示 */}
-            {!selectedFile && transcribing && (
+            {/* 转写中状态 - 仅音频模式 */}
+            {mode === 'audio' && !selectedFile && transcribing && (
               <Card className="mt-4 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
@@ -539,14 +853,47 @@ export default function Home() {
                     </div>
                     <div className="flex-1">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                        常用词汇（逗号分隔）
+                        常用词汇
                       </label>
-                      <Input
-                        value={vocabulary}
-                        onChange={(e) => setVocabulary(e.target.value)}
-                        placeholder="如：需求评审、UI设计"
-                        className="bg-white dark:bg-slate-900"
-                      />
+                      {selectedVocabulary.length > 0 ? (
+                        <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 min-h-[42px]">
+                          <div className="flex flex-wrap gap-1 flex-1">
+                            {selectedVocabulary.slice(0, 5).map((word, i) => (
+                              <span key={i} className="text-xs px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                                {word}
+                              </span>
+                            ))}
+                            {selectedVocabulary.length > 5 && (
+                              <span className="text-xs text-slate-500">
+                                +{selectedVocabulary.length - 5} 更多
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => setShowVocabularySelector(true)}
+                            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                            title="修改常用词汇"
+                          >
+                            <Plus className="w-4 h-4 text-slate-500" />
+                          </button>
+                          <button
+                            onClick={() => setSelectedVocabulary([])}
+                            className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                            title="清除常用词汇"
+                          >
+                            <X className="w-4 h-4 text-slate-500" />
+                          </button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          onClick={() => setShowVocabularySelector(true)}
+                          className="w-full justify-start text-left h-10"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          选择常用词汇模板
+                        </Button>
+                      )}
                     </div>
                     <div className="flex items-end">
                       <Button
@@ -631,6 +978,11 @@ export default function Home() {
                       <div className="w-full h-80 p-4 rounded-xl bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 flex items-center justify-center">
                         <p className="text-slate-500 text-sm">等待原始转写完成...</p>
                       </div>
+                    ) : correcting ? (
+                      <div className="w-full h-80 p-4 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-900 flex flex-col items-center justify-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                        <p className="text-purple-600 dark:text-purple-400 text-sm">纠错进行中，请耐心等待</p>
+                      </div>
                     ) : (
                       <textarea
                         ref={correctedRef}
@@ -681,16 +1033,46 @@ export default function Home() {
               {/* 会议纪要生成 */}
               <Card className="mt-6 border-amber-200 dark:border-amber-800">
                 <CardContent className="p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                      生成会议纪要
-                    </h3>
-                    <Badge variant="outline" className="border-amber-300 text-amber-600">
-                      gpt-5.4-mini
-                    </Badge>
-                    <Badge variant="outline" className="border-amber-300 text-amber-600">
-                      基于纠错后文字稿
-                    </Badge>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                        生成会议纪要
+                      </h3>
+                      <Badge variant="outline" className="border-amber-300 text-amber-600">
+                        基于纠错后文字稿
+                      </Badge>
+                    </div>
+                    {/* 模型选择 */}
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-slate-500">选择模型:</label>
+                        <select
+                          value={selectedModel}
+                          onChange={(e) => handleModelChange(e.target.value)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        >
+                          <optgroup label="💰 性价比模型">
+                            {availableModels.filter(m => m.category === 'budget').map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                          <optgroup label="🚀 旗舰模型">
+                            {availableModels.filter(m => m.category === 'flagship').map((model) => (
+                              <option key={model.id} value={model.id}>
+                                {model.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+                      {modelMessage && (
+                        <span className={`text-sm ${selectedModel.includes('flagship') ? 'text-red-500' : 'text-emerald-500'}`}>
+                          {modelMessage}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* 模板选择 */}
@@ -783,6 +1165,18 @@ export default function Home() {
               </Card>
 
               {/* 纪要结果显示 */}
+              {generatingSummary && (
+                <Card className="mt-6 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                  <CardContent className="p-8">
+                    <div className="flex flex-col items-center justify-center gap-4">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-amber-600"></div>
+                      <p className="text-amber-800 dark:text-amber-200 font-medium">生成纪要进行中，请耐心等待</p>
+                      <p className="text-amber-600 dark:text-amber-400 text-sm">正在基于纠错后的文字稿生成会议纪要</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {summaryResult && (
                 <Card className="mt-6 border-slate-200 dark:border-slate-800">
                   <CardContent className="p-6">
@@ -790,9 +1184,29 @@ export default function Home() {
                       <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
                         会议纪要
                       </h3>
-                      <Badge variant="outline" className="border-amber-300 text-amber-600">
-                        {summaryResult.content.length} 字
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="border-amber-300 text-amber-600">
+                          {summaryResult.content.length} 字
+                        </Badge>
+                        <Button
+                          onClick={copySummaryToClipboard}
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-300 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                        >
+                          {summaryCopied ? (
+                            <>
+                              <Check className="w-4 h-4 mr-1" />
+                              已复制
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4 mr-1" />
+                              一键复制
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
 
                     {/* 摘要 - Markdown 内容 */}
@@ -924,9 +1338,36 @@ export default function Home() {
         .animate-fade-in {
           animation: fade-in 0.5s ease-out forwards;
         }
+        /* 嵌套列表样式 */
+        .markdown-content ul {
+          list-style-type: disc;
+          padding-left: 1.5rem;
+        }
+        .markdown-content ul ul {
+          list-style-type: circle;
+          padding-left: 1.5rem;
+        }
+        .markdown-content ul ul ul {
+          list-style-type: square;
+          padding-left: 1.5rem;
+        }
+        .markdown-content li {
+          margin: 0.25rem 0;
+        }
+        .markdown-content li > p {
+          margin: 0.25rem 0;
+        }
       `}</style>
       </div>
       <Toaster />
+
+      {/* 词汇选择弹窗 */}
+      <VocabularySelector
+        isOpen={showVocabularySelector}
+        onClose={() => setShowVocabularySelector(false)}
+        onConfirm={(words) => setSelectedVocabulary(words)}
+        initialSelected={selectedVocabulary}
+      />
     </>
   )
 }

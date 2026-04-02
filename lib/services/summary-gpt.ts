@@ -1,10 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import * as fs from 'fs'
 import * as path from 'path'
 
 export interface SummaryOptions {
   template?: string  // 模板ID或自定义提示词
   language?: 'zh' | 'en' | 'auto'
+  model?: string     // 模型ID，如 openai/gpt-5.4-mini
+  maxTokens?: number // 最大输出token数
 }
 
 export interface SummaryResult {
@@ -23,16 +25,16 @@ export interface ActionItem {
 }
 
 /**
- * ZenMux GPT-5.4-Mini 会议纪要生成服务
+ * ZenMux OpenAI SDK 会议纪要生成服务
  */
 export class SummaryService {
-  private client: Anthropic
+  private client: OpenAI
   private templates: Map<string, { prompt: string; needsJson: boolean }> = new Map()
 
   constructor(apiKey?: string) {
-    this.client = new Anthropic({
+    this.client = new OpenAI({
       apiKey: apiKey || process.env.ZENMUX_API_KEY,
-      baseURL: 'https://zenmux.ai/api/anthropic',
+      baseURL: 'https://zenmux.ai/api/v1',
     })
     this.loadTemplates()
   }
@@ -72,7 +74,7 @@ export class SummaryService {
   getTemplates(): { id: string; name: string; isCustom: boolean }[] {
     const result: { id: string; name: string; isCustom: boolean }[] = []
 
-    for (const [id, config] of this.templates) {
+    for (const [id] of this.templates) {
       if (id === 'interview') {
         result.push({ id, name: '访谈纪要模板', isCustom: false })
       } else if (id === 'meeting') {
@@ -98,7 +100,7 @@ export class SummaryService {
    * 生成会议纪要
    */
   async generateSummary(transcription: string, options: SummaryOptions = {}): Promise<SummaryResult> {
-    const { template: templateId = 'interview' } = options
+    const { template: templateId = 'interview', model = 'openai/gpt-5.4-mini', maxTokens = 64000 } = options
 
     // 获取模板
     let promptTemplate = ''
@@ -125,32 +127,32 @@ export class SummaryService {
     // 替换转写内容
     const prompt = promptTemplate.replace('{{transcription}}', transcription)
 
-    console.log(`【纪要生成】使用模板: ${templateId}, 需要JSON解析: ${needsJsonOutput}, 文字长度: ${transcription.length}`)
+    console.log(`【纪要生成】使用模型: ${model}, maxTokens: ${maxTokens}, 模板: ${templateId}, 需要JSON解析: ${needsJsonOutput}, 文字长度: ${transcription.length}`)
 
     try {
-      // 使用流式响应
-      const stream = await this.client.messages.stream({
-        model: 'openai/gpt-5.4-mini',
-        max_tokens: 131072, // 128K
+      // 使用 OpenAI SDK 流式响应
+      const stream = await this.client.chat.completions.create({
+        model: model,
+        max_tokens: maxTokens,
         messages: [
           {
             role: 'user',
             content: prompt,
           },
         ],
+        stream: true,
       })
 
       let fullText = ''
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta') {
-          const delta = event.delta as any
-          if (delta.type === 'text_delta' || delta.text) {
-            fullText += delta.text || ''
-          }
+      let chunkCount = 0
+      for await (const chunk of stream) {
+        chunkCount++
+        const content = chunk.choices[0]?.delta?.content
+        if (content) {
+          fullText += content
         }
       }
-
-      console.log(`【纪要生成】响应长度: ${fullText.length}`)
+      console.log(`【纪要生成】收到 ${chunkCount} 个 chunk, 最终文本长度: ${fullText.length}`)
 
       // 如果不需要 JSON 输出，直接返回 Markdown 内容
       if (!needsJsonOutput) {

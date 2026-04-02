@@ -16,7 +16,7 @@ export async function POST(
   try {
     const { id } = await params
     const body = await req.json()
-    const { topic, vocabulary } = body
+    const { topic, vocabulary, model, maxTokens } = body
 
     // 获取会议及转写内容
     const meeting = await prisma.meeting.findUnique({
@@ -45,6 +45,8 @@ export async function POST(
     const result = await correctionService.correct(meeting.transcription.fullText, {
       topic,
       vocabulary: vocabulary || [],
+      model,
+      maxTokens,
     })
 
     return NextResponse.json({

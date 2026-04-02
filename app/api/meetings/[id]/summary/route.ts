@@ -37,7 +37,9 @@ export async function POST(
   try {
     const { id } = await params
     const body = await req.json()
-    const { transcription, template = 'interview', customPrompt } = body
+    const { transcription, template = 'interview', customPrompt, model = 'openai/gpt-5.4-mini', maxTokens } = body
+
+    console.log('【纪要API】接收到的模型参数:', model, 'maxTokens:', maxTokens)
 
     if (!transcription) {
       return NextResponse.json(
@@ -57,7 +59,7 @@ export async function POST(
       summaryService.addTemplate(templateId, fullPrompt, false) // 自定义模板输出 Markdown
     }
 
-    const result = await summaryService.generateSummary(transcription, { template: templateId })
+    const result = await summaryService.generateSummary(transcription, { template: templateId, model, maxTokens })
 
     return NextResponse.json({
       success: true,

@@ -28,8 +28,8 @@ export function FileUploader({ onUploadSuccess, onUploadError }: FileUploaderPro
     'audio/ogg': ['.ogg'],
   }
 
-  // 最大文件大小：12小时录音约 2-3GB
-  const maxSize = 3 * 1024 * 1024 * 1024 // 3GB
+  // 最大文件大小：500MB
+  const maxSize = 500 * 1024 * 1024 // 500MB
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -43,7 +43,7 @@ export function FileUploader({ onUploadSuccess, onUploadError }: FileUploaderPro
     if (fileRejections.length > 0) {
       const error = fileRejections[0].errors[0]
       if (error.code === 'file-too-large') {
-        toast.error('文件过大！最大支持3GB（约12小时录音）')
+        toast.error('文件过大！最大支持 500MB')
       } else if (error.code === 'file-invalid-type') {
         toast.error('不支持的文件格式！请上传音频文件')
       } else {
@@ -105,17 +105,29 @@ export function FileUploader({ onUploadSuccess, onUploadError }: FileUploaderPro
 
       // 处理响应
       xhr.addEventListener('load', () => {
-        if (xhr.status === 200) {
-          const response = JSON.parse(xhr.responseText)
-          if (response.success) {
-            toast.success('文件上传成功！开始转写...')
-            onUploadSuccess?.(response.data.meetingId)
-            setSelectedFile(null)
+        try {
+          if (xhr.status === 200) {
+            const response = JSON.parse(xhr.responseText)
+            if (response.success) {
+              toast.success('文件上传成功！开始转写...')
+              onUploadSuccess?.(response.data.meetingId)
+              setSelectedFile(null)
+            } else {
+              throw new Error(response.error || '上传失败')
+            }
           } else {
-            throw new Error(response.error || '上传失败')
+            // 检查是否返回了 HTML 而不是 JSON
+            if (xhr.responseText.startsWith('<!DOCTYPE') || xhr.responseText.startsWith('<html')) {
+              console.error('服务器返回了HTML页面而非JSON:', xhr.status, xhr.responseText.substring(0, 500))
+              throw new Error(`API路由错误 (HTTP ${xhr.status})，请检查服务器是否正常运行`)
+            }
+            throw new Error(`上传失败: HTTP ${xhr.status}`)
           }
-        } else {
-          throw new Error(`上传失败: HTTP ${xhr.status}`)
+        } catch (e) {
+          const errorMsg = e instanceof Error ? e.message : '解析响应失败'
+          console.error('上传响应处理失败:', errorMsg, 'Response:', xhr.responseText.substring(0, 500))
+          toast.error(errorMsg)
+          onUploadError?.(errorMsg)
         }
         setUploading(false)
       })
@@ -181,7 +193,7 @@ export function FileUploader({ onUploadSuccess, onUploadError }: FileUploaderPro
                   支持 MP3, WAV, M4A, AAC, FLAC, OGG 格式
                 </p>
                 <p className="mt-1 text-sm text-gray-500">
-                  最大支持 3GB（约12小时录音）
+                  最大支持 500MB
                 </p>
               </>
             )}

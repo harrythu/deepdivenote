@@ -1,8 +1,25 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
+import fs from 'fs'
+import path from 'path'
+
+/**
+ * 从文件加载纠错提示词模板
+ */
+function loadCorrectionPromptTemplate(): string {
+  const templatePath = path.join(process.cwd(), 'default_correct_prompt.txt')
+  try {
+    return fs.readFileSync(templatePath, 'utf-8')
+  } catch (error) {
+    console.error('加载纠错提示词模板失败:', error)
+    throw new Error('无法加载 default_correct_prompt.txt 文件')
+  }
+}
 
 export interface CorrectionOptions {
   topic?: string           // 会议主题
   vocabulary?: string[]     // 常用词汇列表
+  model?: string           // 模型ID，如 openai/gpt-5.4-mini
+  maxTokens?: number       // 最大输出token数
 }
 
 export interface CorrectionResult {
@@ -19,15 +36,15 @@ export interface Correction {
 
 /**
  * ZenMux API 纠错服务
- * 使用 GPT-5.4-Mini 模型对转写文字稿进行纠错
+ * 使用 OpenAI SDK 调用大模型对转写文字稿进行纠错
  */
 export class CorrectionService {
-  private client: Anthropic
+  private client: OpenAI
 
   constructor(apiKey?: string) {
-    this.client = new Anthropic({
+    this.client = new OpenAI({
       apiKey: apiKey || process.env.ZENMUX_API_KEY,
-      baseURL: 'https://zenmux.ai/api/anthropic',
+      baseURL: 'https://zenmux.ai/api/v1',
     })
   }
 
@@ -35,14 +52,10 @@ export class CorrectionService {
     transcription: string,
     options: CorrectionOptions = {}
   ): Promise<CorrectionResult> {
-    const { topic, vocabulary = [] } = options
+    const { topic, vocabulary = [], model = 'openai/gpt-5.4-mini', maxTokens = 128000 } = options
 
-    // GPT-5.4-Mini 配置
-    // Context window: 400K tokens
     // 输入限制：约 300K 字符（留空间给 prompt 和 JSON 输出）
-    // 输出限制：128K tokens (131072)
     const MAX_INPUT_CHARS = 300000
-    const MAX_OUTPUT_TOKENS = 131072 // 128K
 
     let textToCorrect = transcription
     let wasTruncated = false
@@ -55,32 +68,32 @@ export class CorrectionService {
 
     const prompt = this.buildPrompt(textToCorrect, topic, vocabulary)
 
-    console.log(`【纠错请求】文字长度: ${textToCorrect.length} 字符, 使用流式模式`)
+    console.log(`【纠错请求】模型: ${model}, 文字长度: ${textToCorrect.length} 字符`)
 
     try {
-      // 使用流式响应处理长文本
-      const stream = await this.client.messages.stream({
-        model: 'openai/gpt-5.4-mini',
-        max_tokens: MAX_OUTPUT_TOKENS,
+      // 使用 OpenAI SDK 流式响应
+      const stream = await this.client.chat.completions.create({
+        model: model,
+        max_tokens: maxTokens,
         messages: [
           {
             role: 'user',
             content: prompt,
           },
         ],
+        stream: true,
       })
 
       let fullText = ''
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta') {
-          const delta = event.delta as any
-          if (delta.type === 'text_delta' || delta.text) {
-            fullText += delta.text || ''
-          }
+      let chunkCount = 0
+      for await (const chunk of stream) {
+        chunkCount++
+        const content = chunk.choices[0]?.delta?.content
+        if (content) {
+          fullText += content
         }
       }
-
-      console.log(`【纠错响应】流式响应完成，长度: ${fullText.length} 字符`)
+      console.log(`【纠错响应】收到 ${chunkCount} 个 chunk, 最终文本长度: ${fullText.length} 字符`)
       const result = this.parseResponse(fullText, textToCorrect)
 
       if (wasTruncated) {
@@ -98,6 +111,9 @@ export class CorrectionService {
   }
 
   private buildPrompt(transcription: string, topic?: string, vocabulary?: string[]): string {
+    // 从文件加载提示词模板
+    const template = loadCorrectionPromptTemplate()
+
     let context = ''
 
     if (topic) {
@@ -105,48 +121,17 @@ export class CorrectionService {
     }
 
     if (vocabulary && vocabulary.length > 0) {
-      context += `会议常用词汇（请优先使用这些词汇，不要随意替换）：\n`
+      context += `会议常用词汇（当原文中出现同样或者类似发音词汇时，使用以下词汇替换）：\n`
       vocabulary.forEach((word, i) => {
         context += `${i + 1}. ${word}\n`
       })
       context += '\n'
     }
 
-    return `你是一个专业的会议逐字稿纠错助手。请对以下转写文字稿进行纠错，包括：
-
-1. 错别字修正
-2. 同音字/近音字错误（如"帐"和"账"、"的地得"的用法）
-3. 口语化表达转换为书面语（如"那个那个"删除、"嗯嗯啊啊"删除）
-4. 重复语句精简
-5. 基于会议主题和专业词汇进行术语规范化
-6. 语义不通顺的句子修正
-
-${context ? `参考背景信息：\n${context}` : ''}
-
-转写文字稿：
-"""
-${transcription}
-"""
-
-请按照以下 JSON 格式输出纠错结果（只输出 JSON，不要其他内容）：
-
-{
-  "correctedText": "纠错后的完整文字稿（保持原有段落结构）",
-  "corrections": [
-    {
-      "original": "原文片段",
-      "corrected": "纠错后片段",
-      "reason": "纠错原因：错别字/口语化/语义不通顺/术语规范化等"
-    }
-  ]
-}
-
-注意事项：
-1. correctedText 是纠错后的完整文字稿，请保持原有段落结构和格式
-2. corrections 数组列出所有具体纠错，每个纠错包含原文、纠错后和原因
-3. 如果没有需要纠错的地方，corrections 为空数组，correctedText 与原文相同
-4. 保持原文的语气和说话风格，不要过度修改
-`
+    // 替换模板中的占位符
+    return template
+      .replace('{{CONTEXT}}', context ? `参考背景信息：\n${context}` : '')
+      .replace('{{TRANSCRIPTION}}', transcription)
   }
 
   private parseResponse(text: string, originalText: string): Omit<CorrectionResult, 'tokensUsed'> {

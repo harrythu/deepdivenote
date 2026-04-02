@@ -1,0 +1,64 @@
+大模型领域公司 
+OpenAI
+Anthropic
+Gemini
+Google
+Deepmind
+X.ai
+Deepseek
+Seed
+月之暗面
+Kimi
+Minimax
+通义千问
+千问
+智谱
+百灵
+豆包
+Mistral
+Perplexity
+Midjourney
+Mercor
+Scale.ai
+Surge
+Palantir
+
+主要模型
+GPT-5
+GPT-4
+GPT-4o
+GPT-3.5
+GPT-3
+o1
+o3
+Gemini 3
+Gemini 2.5
+Codex
+Sora
+Opus
+Sonnet
+Haiku
+GLM
+K2
+K2.5
+M2.5
+M2.7
+V3
+R1
+Seed Dance
+Diffusion
+QWEN
+混元
+llama
+
+主要大模型产品
+ChatGPT
+Claude
+Claude Code
+Claude Cowork
+文心一言
+NotebookLM
+OpenClaw
+扣子
+Coze
+

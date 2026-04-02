@@ -7,7 +7,7 @@ import { MeetingStatus } from '@prisma/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-// 配置最大请求体大小为3GB (App Router 使用 bodyParser 和 maxDuration)
+// 配置最大请求体大小为500MB (App Router 使用 bodyParser 和 maxDuration)
 export const maxDuration = 300 // 最大执行时间 5 分钟
 
 /**
@@ -50,11 +50,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 验证文件大小（3GB）
-    const maxSize = 3 * 1024 * 1024 * 1024
+    // 验证文件大小（500MB）
+    const maxSize = 500 * 1024 * 1024
     if (file.size > maxSize) {
       return NextResponse.json(
-        { success: false, error: '文件过大，最大支持3GB' },
+        { success: false, error: '文件过大，最大支持 500MB' },
         { status: 400 }
       )
     }

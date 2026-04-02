@@ -23,6 +23,7 @@ export class AliyunOSSService {
                 accessKeyId,
                 accessKeySecret,
                 bucket: process.env.ALIYUN_OSS_BUCKET || 'deepdivenote',
+                timeout: 300 * 1000, // 5分钟超时
             })
         }
         return this.client
