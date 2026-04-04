@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 import { VocabularySelector } from '@/components/VocabularySelector'
+import { UserMenu } from '@/components/auth/UserMenu'
 import { Plus, X, Copy, Check } from 'lucide-react'
 
 // 深海主题 Logo
@@ -78,7 +79,6 @@ export default function Home() {
   const [textFile, setTextFile] = useState<File | null>(null)
 
   // 纠错相关状态
-  const [topic, setTopic] = useState('')
   const [vocabulary, setVocabulary] = useState('')
   const [selectedVocabulary, setSelectedVocabulary] = useState<string[]>([])
   const [showVocabularySelector, setShowVocabularySelector] = useState(false)
@@ -102,14 +102,9 @@ export default function Home() {
     tags: string[]
   } | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState('interview')
-  const [customPrompt, setCustomPrompt] = useState('')
-  const [showTemplatePreview, setShowTemplatePreview] = useState(false)
   const [templateContent, setTemplateContent] = useState<Record<string, { name: string; content: string }>>({})
-  const [templates, setTemplates] = useState<{id: string; name: string}[]>([
-    { id: 'interview', name: '访谈纪要模板' },
-    { id: 'meeting', name: '会议纪要模板' },
-    { id: 'custom', name: '自定义模板' },
-  ])
+  const [userTemplates, setUserTemplates] = useState<{id: string; name: string; content: string}[]>([])
+  const [showUserTemplatePicker, setShowUserTemplatePicker] = useState<{ show: boolean; x: number; y: number }>({ show: false, x: 0, y: 0 })
 
   // 模型选择相关状态
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; category: string; description: string; maxTokens: number}[]>([])
@@ -137,6 +132,41 @@ export default function Home() {
       }
     }
     loadTemplates()
+  }, [])
+
+  // 加载用户模板
+  // 加载用户模板
+  const loadUserTemplates = async () => {
+    try {
+      const res = await fetch('/api/user/templates')
+      const data = await res.json()
+      if (data.success) {
+        setUserTemplates(data.data.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          content: t.content
+        })))
+      }
+    } catch (error) {
+      console.error('加载用户模板失败:', error)
+    }
+  }
+
+  useEffect(() => {
+    loadUserTemplates()
+  }, [])
+
+  // 页面可见性变化时刷新用户模板（从其他标签页返回时）
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadUserTemplates()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [])
 
   // 加载模型列表
@@ -299,52 +329,27 @@ export default function Home() {
       const file = acceptedFiles[0]
       setTextFile(file)
 
-      const fileName = file.name.toLowerCase()
+      // 使用 API 解析文件
+      const formData = new FormData()
+      formData.append('file', file)
 
-      if (fileName.endsWith('.docx')) {
-        // 解析 Word 文件
-        const reader = new FileReader()
-        reader.onload = async (e) => {
-          try {
-            const arrayBuffer = e.target?.result as ArrayBuffer
-            const mammoth = (await import('mammoth')).default
-            const result = await mammoth.extractRawText({ arrayBuffer })
-            setTextContent(result.value)
-            toast.success(`已加载: ${file.name}`)
-          } catch (error) {
-            console.error('Word 解析失败:', error)
-            toast.error('Word 文件解析失败')
+      toast.promise(
+        fetch('/api/parse-file', {
+          method: 'POST',
+          body: formData,
+        }).then(async (res) => {
+          const data = await res.json()
+          if (!data.success) {
+            throw new Error(data.error || '文件解析失败')
           }
+          setTextContent(data.data.text)
+        }),
+        {
+          loading: '正在解析文件...',
+          success: `已加载: ${file.name}`,
+          error: (err) => err.message || '文件解析失败',
         }
-        reader.readAsArrayBuffer(file)
-      } else if (fileName.endsWith('.pdf')) {
-        // 解析 PDF 文件
-        const reader = new FileReader()
-        reader.onload = async (e) => {
-          try {
-            const arrayBuffer = e.target?.result as ArrayBuffer
-            const { PDFParse } = await import('pdf-parse')
-            // 设置 workerSrc，使用 public 目录下的文件
-            PDFParse.setWorker('/pdf.worker.min.mjs')
-            const parser = new PDFParse({ data: new Uint8Array(arrayBuffer) })
-            const result = await parser.getText()
-            setTextContent(result.text)
-            toast.success(`已加载: ${file.name}`)
-          } catch (error) {
-            console.error('PDF 解析失败:', error)
-            toast.error('PDF 文件解析失败')
-          }
-        }
-        reader.readAsArrayBuffer(file)
-      } else {
-        // 解析 txt/md 文件
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          setTextContent(e.target?.result as string || '')
-          toast.success(`已加载: ${file.name}`)
-        }
-        reader.readAsText(file)
-      }
+      )
     }
   }, [])
 
@@ -457,7 +462,7 @@ export default function Home() {
       const res = await fetch(`/api/meetings/${meetingId}/correction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, vocabulary: selectedVocabulary }),
+        body: JSON.stringify({ vocabulary: selectedVocabulary }),
       })
       console.log('【纠错】响应状态:', res.status)
       const data = await res.json()
@@ -486,13 +491,19 @@ export default function Home() {
     setGeneratingSummary(true)
     console.log('【纪要】开始生成，使用模型:', selectedModel, '模板:', selectedTemplate)
     try {
+      // 检查是否选择了用户模板（investor是系统模板，不是用户模板）
+      const isUserTemplate = selectedTemplate !== 'interview' && selectedTemplate !== 'meeting' && selectedTemplate !== 'investor'
+      const customPrompt = isUserTemplate
+        ? userTemplates.find(t => t.id === selectedTemplate)?.content
+        : undefined
+
       const res = await fetch(`/api/meetings/${meetingId}/summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcription: textToSummarize,
-          template: selectedTemplate,
-          customPrompt: selectedTemplate === 'custom' ? customPrompt : undefined,
+          template: isUserTemplate ? 'custom' : selectedTemplate,
+          customPrompt,
           model: selectedModel,
           maxTokens: availableModels.find(m => m.id === selectedModel)?.maxTokens || 64000,
         }),
@@ -523,9 +534,10 @@ export default function Home() {
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative overflow-x-hidden">
         <Bubbles />
 
-      {/* 导航栏 */}
+      {/* 顶部导航栏 */}
       <nav className="relative z-10 border-b border-slate-200/50 dark:border-slate-800/50 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+          {/* 左侧 Logo */}
           <div className="flex items-center gap-3">
             <DeepDiveLogo className="w-10 h-10" />
             <div>
@@ -533,7 +545,44 @@ export default function Home() {
               <p className="text-xs text-slate-500 dark:text-slate-400">录音转写专家</p>
             </div>
           </div>
+
+          {/* 中间导航链接 */}
+          <div className="flex items-center gap-6">
+            <a
+              href="/"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              会议转写
+            </a>
+            <a
+              href="/settings/vocabularies"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              常用词汇
+            </a>
+            <a
+              href="/settings/templates"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              我的模板
+            </a>
+            <a
+              href="/history"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+            >
+              历史记录
+            </a>
+          </div>
+
+          {/* 右侧用户菜单 */}
           <div className="flex items-center gap-3">
+            <UserMenu />
             {(originalText || meetingId) && (
               <Button
                 onClick={resetForNewUpload}
@@ -544,7 +593,7 @@ export default function Home() {
                 开始新上传
               </Button>
             )}
-            <span className="text-xs text-slate-400">最大 500MB</span>
+            <span className="text-xs text-slate-400 hidden sm:inline">最大 500MB</span>
           </div>
         </div>
       </nav>
@@ -839,19 +888,8 @@ export default function Home() {
               {/* 纠错参数 */}
               <Card className="mb-6 border-slate-200 dark:border-slate-800">
                 <CardContent className="p-6">
-                  <div className="flex flex-col md:flex-row gap-4">
-                    <div className="flex-1">
-                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                        会议主题（可选）
-                      </label>
-                      <Input
-                        value={topic}
-                        onChange={(e) => setTopic(e.target.value)}
-                        placeholder="如：产品需求评审"
-                        className="bg-white dark:bg-slate-900"
-                      />
-                    </div>
-                    <div className="flex-1">
+                  <div className="flex flex-col md:flex-row gap-4 items-end">
+                    <div className="flex-1 w-full">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
                         常用词汇
                       </label>
@@ -942,14 +980,23 @@ export default function Home() {
                         </div>
                       </div>
                     ) : (
-                      <textarea
-                        ref={originalRef}
-                        onScroll={() => handleScroll('original')}
-                        value={originalText}
-                        onChange={(e) => setOriginalText(e.target.value)}
-                        placeholder="加载会议后显示原始转写..."
-                        className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-slate-400"
-                      />
+                      <>
+                        <textarea
+                          ref={originalRef}
+                          onScroll={() => handleScroll('original')}
+                          value={originalText}
+                          readOnly
+                          placeholder="加载会议后显示原始转写..."
+                          className="w-full h-80 p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-dashed border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-slate-300 dark:focus:ring-slate-600 cursor-text"
+                          title="此文本为只读模式，仅可复制"
+                        />
+                        <p className="mt-2 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                          只读内容，无法编辑
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>
@@ -975,23 +1022,33 @@ export default function Home() {
                   </div>
                   <div className="relative">
                     {transcribing ? (
-                      <div className="w-full h-80 p-4 rounded-xl bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 flex items-center justify-center">
+                      <div className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center">
                         <p className="text-slate-500 text-sm">等待原始转写完成...</p>
                       </div>
                     ) : correcting ? (
-                      <div className="w-full h-80 p-4 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-900 flex flex-col items-center justify-center gap-3">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-                        <p className="text-purple-600 dark:text-purple-400 text-sm">纠错进行中，请耐心等待</p>
+                      <div className="w-full h-80 p-4 rounded-xl bg-slate-50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-400"></div>
+                        <p className="text-slate-600 dark:text-slate-400 text-sm">纠错进行中，请耐心等待</p>
                       </div>
                     ) : (
-                      <textarea
-                        ref={correctedRef}
-                        onScroll={() => handleScroll('corrected')}
-                        value={correctedText}
-                        onChange={(e) => setCorrectedText(e.target.value)}
-                        placeholder="纠错后显示在这里..."
-                        className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-900 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-400"
-                      />
+                      <>
+                        <textarea
+                          ref={correctedRef}
+                          onScroll={() => handleScroll('corrected')}
+                          value={correctedText}
+                          onChange={(e) => setCorrectedText(e.target.value)}
+                          placeholder="纠错后显示在这里，可以手动编辑..."
+                          className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-600 hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
+                        />
+                        {correctedText && (
+                          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            可以手动编辑，生成纪要时将使用最新内容
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -1077,74 +1134,65 @@ export default function Home() {
 
                   {/* 模板选择 */}
                   <div className="mb-4">
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                      选择提示词模板
-                    </label>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {templates.map((t) => (
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        选择提示词模板
+                      </label>
+                      <a
+                        href="/settings/templates"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:text-blue-700"
+                      >
+                        创作我的模板
+                      </a>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {/* 系统模板 */}
+                      <button
+                        onClick={() => setSelectedTemplate('interview')}
+                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          selectedTemplate === 'interview'
+                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
+                        }`}
+                      >
+                        专家访谈
+                      </button>
+                      <button
+                        onClick={() => setSelectedTemplate('investor')}
+                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          selectedTemplate === 'investor'
+                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
+                        }`}
+                      >
+                        创业公司访谈
+                      </button>
+                      {/* 用户模板（最多显示5个） */}
+                      {userTemplates.slice(0, 5).map((t) => (
                         <button
                           key={t.id}
                           onClick={() => setSelectedTemplate(t.id)}
                           className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
                             selectedTemplate === t.id
                               ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
+                              : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-transparent hover:bg-blue-100'
                           }`}
                         >
                           {t.name}
                         </button>
                       ))}
-                      <button
-                        onClick={() => setShowTemplatePreview(!showTemplatePreview)}
-                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors border ${
-                          showTemplatePreview
-                            ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-transparent hover:bg-slate-200'
-                        }`}
-                      >
-                        {showTemplatePreview ? '收起模板' : '查看模板内容'}
-                      </button>
+                      {/* 更多用户模板按钮 */}
+                      {userTemplates.length > 5 && (
+                        <button
+                          onClick={() => setShowUserTemplatePicker({ show: true, x: 0, y: 0 })}
+                          className="px-3 py-1.5 rounded-lg text-sm transition-colors bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200"
+                        >
+                          + 更多 ({userTemplates.length - 5})
+                        </button>
+                      )}
                     </div>
-
-                    {/* 模板内容预览 */}
-                    {showTemplatePreview && selectedTemplate !== 'custom' && templateContent[selectedTemplate] && (
-                      <div className="mt-3 p-4 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-slate-500">
-                            {templateContent[selectedTemplate].name} - 提示词内容
-                          </span>
-                          <span className="text-xs text-slate-400">
-                            {templateContent[selectedTemplate].content.length} 字
-                          </span>
-                        </div>
-                        <pre className="text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
-                          {templateContent[selectedTemplate].content}
-                        </pre>
-                      </div>
-                    )}
-
-                    {showTemplatePreview && selectedTemplate === 'custom' && (
-                      <div className="mt-3 p-4 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-medium text-slate-500">
-                            自定义模板
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-500">
-                          使用下方文本框输入自定义提示词，使用 {"{{transcription}}"} 占位转写内容。
-                        </p>
-                      </div>
-                    )}
-
-                    {/* 自定义模板输入 */}
-                    {selectedTemplate === 'custom' && (
-                      <textarea
-                        value={customPrompt}
-                        onChange={(e) => setCustomPrompt(e.target.value)}
-                        placeholder="输入自定义提示词模板，使用 {{transcription}} 占位转写内容..."
-                        className="w-full h-32 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
-                      />
-                    )}
                   </div>
 
                   <Button
@@ -1158,7 +1206,7 @@ export default function Home() {
                         纪要生成中...
                       </>
                     ) : (
-                      '📋 生成会议纪要'
+                      '📋 生成纪要'
                     )}
                   </Button>
                 </CardContent>
@@ -1368,6 +1416,48 @@ export default function Home() {
         onConfirm={(words) => setSelectedVocabulary(words)}
         initialSelected={selectedVocabulary}
       />
+
+      {/* 用户模板选择弹窗 */}
+      {showUserTemplatePicker.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowUserTemplatePicker({ show: false, x: 0, y: 0 })}
+          />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                选择我的模板
+              </h2>
+              <button
+                onClick={() => setShowUserTemplatePicker({ show: false, x: 0, y: 0 })}
+                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-4 max-h-64 overflow-y-auto">
+              {userTemplates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setSelectedTemplate(t.id)
+                    setShowUserTemplatePicker({ show: false, x: 0, y: 0 })
+                  }}
+                  className={`w-full text-left px-4 py-3 rounded-lg text-sm transition-colors mb-2 ${
+                    selectedTemplate === t.id
+                      ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  <div className="font-medium">{t.name}</div>
+                  <div className="text-xs text-slate-500 mt-1 truncate">{t.content.slice(0, 50)}...</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

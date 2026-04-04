@@ -23,18 +23,18 @@ export async function GET() {
       console.error('加载访谈纪要模板失败:', error)
     }
 
-    // 加载会议纪要模板
+    // 加载投资人模板
     try {
-      const meetingPath = path.join(process.cwd(), 'default_meeting_prompt.txt')
-      if (fs.existsSync(meetingPath)) {
-        const content = fs.readFileSync(meetingPath, 'utf-8')
-        templates.meeting = {
-          name: '会议纪要模板',
+      const investorPath = path.join(process.cwd(), 'default_investor_prompt.txt')
+      if (fs.existsSync(investorPath)) {
+        const content = fs.readFileSync(investorPath, 'utf-8')
+        templates.investor = {
+          name: '投资人模板',
           content: content
         }
       }
     } catch (error) {
-      console.error('加载会议纪要模板失败:', error)
+      console.error('加载投资人模板失败:', error)
     }
 
     return NextResponse.json({

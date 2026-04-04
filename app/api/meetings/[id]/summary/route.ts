@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSummaryService } from '@/lib/services/summary-gpt'
+import { prisma } from '@/lib/db/prisma'
+import { getCurrentUser } from '@/lib/auth/get-user'
+import { MeetingStatus, Prisma } from '@prisma/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,6 +51,19 @@ export async function POST(
       )
     }
 
+    // 获取当前用户（如果已登录）
+    const currentUser = await getCurrentUser()
+
+    // 如果用户已登录，关联会议与用户
+    if (currentUser) {
+      await prisma.meeting.update({
+        where: { id },
+        data: { userId: currentUser.id },
+      }).catch(() => {
+        // 忽略错误，可能会议已有关联
+      })
+    }
+
     const summaryService = getSummaryService()
 
     // 如果选择自定义模板，使用用户提供的提示词
@@ -61,10 +77,65 @@ export async function POST(
 
     const result = await summaryService.generateSummary(transcription, { template: templateId, model, maxTokens })
 
+    // 保存纪要到数据库
+    const summary = await prisma.summary.upsert({
+      where: { meetingId: id },
+      update: {
+        content: result.content,
+        keyPoints: result.keyPoints,
+        actionItems: result.actionItems as unknown as Prisma.InputJsonValue,
+        participants: result.participants,
+        tags: result.tags,
+        model: model,
+      },
+      create: {
+        meetingId: id,
+        content: result.content,
+        keyPoints: result.keyPoints,
+        actionItems: result.actionItems as unknown as Prisma.InputJsonValue,
+        participants: result.participants,
+        tags: result.tags,
+        model: model,
+      },
+    })
+
+    // 更新会议状态为已完成
+    await prisma.meeting.update({
+      where: { id },
+      data: { status: MeetingStatus.COMPLETED },
+    }).catch(() => {
+      // 忽略错误
+    })
+
+    // 如果用户已登录，更新历史记录中的纪要信息
+    if (currentUser) {
+      const now = new Date()
+      await prisma.meetingHistory.upsert({
+        where: { meetingId: id },
+        update: {
+          summaryDate: now,
+          summaryTime: now,
+          summaryContent: result.content,
+        },
+        create: {
+          meetingId: id,
+          uploadDate: now,
+          uploadTime: now,
+          fileName: '未知文件',
+          summaryDate: now,
+          summaryTime: now,
+          summaryContent: result.content,
+        },
+      }).catch((error) => {
+        console.error('更新历史记录失败:', error)
+      })
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         meetingId: id,
+        id: summary.id,
         ...result,
       },
     })

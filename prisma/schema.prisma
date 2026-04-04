@@ -26,6 +26,10 @@ model Meeting {
   progress    Int           @default(0)            // 处理进度 0-100
   errorMessage String?      @map("error_message")  // 错误信息
 
+  // 用户关联
+  userId      String?   @map("user_id")
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   // 时间戳
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
@@ -33,10 +37,12 @@ model Meeting {
   // 关联关系
   transcription Transcription?
   summary       Summary?
+  history       MeetingHistory?
 
   @@map("meetings")
   @@index([status])
   @@index([createdAt])
+  @@index([userId])
 }
 
 // 会议状态枚举
@@ -96,4 +102,92 @@ model Summary {
 
   @@map("summaries")
   @@index([meetingId])
+}
+
+// 历史记录表
+model MeetingHistory {
+  id              String   @id @default(cuid())
+  meetingId        String   @unique @map("meeting_id")
+  meeting          Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  // 文件上传信息
+  uploadDate       DateTime @default(now()) @map("upload_date")  // 文件上传日期
+  uploadTime       DateTime @default(now()) @map("upload_time")  // 文件上传时间
+  fileName         String   @map("file_name")                   // 上传的文件名称
+
+  // 纪要生成信息
+  summaryDate      DateTime? @map("summary_date")               // 纪要生成日期
+  summaryTime      DateTime? @map("summary_time")               // 纪要生成时间
+  summaryContent   String?   @map("summary_content") @db.Text   // 生成的纪要内容
+
+  // 时间戳
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("meeting_histories")
+  @@index([meetingId])
+  @@index([uploadDate])
+}
+
+// ========== 用户系统 ==========
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  name          String?
+
+  isActive      Boolean  @default(true) @map("is_active")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  vocabularies  UserVocabulary[]
+  templates     UserTemplate[]
+  meetings      Meeting[]
+
+  @@map("users")
+  @@index([email])
+}
+
+model UserVocabulary {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  words       Json     @default("[]")
+  wordCount   Int      @default(0) @map("word_count")
+
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("user_vocabularies")
+  @@index([userId])
+}
+
+model UserTemplate {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  content     String   @db.Text
+
+  category    String?
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  usageCount  Int      @default(0) @map("usage_count")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("user_templates")
+  @@index([userId])
 }

@@ -1,42 +1,45 @@
 FROM node:20-alpine AS base
 
-# Install dependencies only when needed
+# 依赖安装阶段
 FROM base AS deps
-RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
-
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
+COPY prisma ./prisma/
 RUN npm ci
 
-# Rebuild the native dependencies and build
-FROM base AS rebuild
-RUN apk add --no-cache libc6-compat python3 make g++
+# 构建阶段
+FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm install -g tsx
+
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate
 RUN npm run build
 
-# Production image
+# 生产运行阶段
 FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-COPY --from=rebuild /app/public ./public
-COPY --from=rebuild /app/.next/standalone ./
-COPY --from=rebuild /app/.next/static ./.next/static
-COPY --from=rebuild /app/prisma ./prisma
-COPY --from=rebuild /app/scripts ./scripts
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/scripts ./scripts
+
+# 复制系统词汇表和模板文件
+COPY --from=builder /app/voca-*.txt ./
+COPY --from=builder /app/default_*.txt ./
 
 USER nextjs
-
 EXPOSE 3000
-
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 

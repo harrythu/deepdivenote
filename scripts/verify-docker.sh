@@ -91,9 +91,7 @@ if [ -f ".env" ]; then
         echo -e "${GREEN}✅ ANTHROPIC_API_KEY 已配置${NC}"
     fi
 else
-    echo -e "${YELLOW}⚠️  .env 文件不存在，正在创建...${NC}"
-    cp .env.example .env
-    echo -e "${YELLOW}请编辑 .env 文件，填入您的 API Keys${NC}"
+    echo -e "${YELLOW}⚠️  .env 文件不存在${NC}"
 fi
 
 echo ""

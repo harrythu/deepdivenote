@@ -31,8 +31,7 @@ fi
 # 检查 .env 文件
 if [ ! -f .env ]; then
     echo -e "${YELLOW}警告: .env 文件不存在${NC}"
-    echo -e "${YELLOW}请复制 .env.production.example 为 .env 并配置${NC}"
-    echo -e "${YELLOW}cp .env.production.example .env${NC}"
+    echo -e "${YELLOW}请配置环境变量${NC}"
     exit 1
 fi
 

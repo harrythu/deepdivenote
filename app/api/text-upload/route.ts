@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { MeetingStatus } from '@prisma/client'
+import { getCurrentUser } from '@/lib/auth/get-user'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -24,7 +25,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // 获取当前用户（如果已登录）
+    const currentUser = await getCurrentUser()
+
     const meetingTitle = title?.trim() || '未命名逐字稿'
+    const fileName = `${meetingTitle}.txt`
 
     console.log(`接收到文字稿: ${meetingTitle}, 长度: ${content.length} 字符`)
 
@@ -34,10 +39,26 @@ export async function POST(req: NextRequest) {
         title: meetingTitle,
         status: MeetingStatus.COMPLETED,
         progress: 100,
+        userId: currentUser?.id, // 关联用户
       },
     })
 
     console.log(`创建Meeting记录: ${meeting.id}`)
+
+    // 如果用户已登录，创建历史记录
+    if (currentUser) {
+      const now = new Date()
+      await prisma.meetingHistory.create({
+        data: {
+          meetingId: meeting.id,
+          uploadDate: now,
+          uploadTime: now,
+          fileName: fileName,
+        },
+      }).catch((error) => {
+        console.error('创建历史记录失败:', error)
+      })
+    }
 
     // 2. 创建Transcription记录（直接存储文字稿）
     await prisma.transcription.create({

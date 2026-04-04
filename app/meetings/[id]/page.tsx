@@ -5,10 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
+import { Copy, Check, ArrowLeft } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useRouter } from 'next/navigation'
 
 interface MeetingData {
   id: string
@@ -38,17 +39,21 @@ export default function MeetingPage({
   const [meeting, setMeeting] = useState<MeetingData | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
-
-  // 纠错相关状态
-  const [topic, setTopic] = useState('')
-  const [vocabulary, setVocabulary] = useState('')
-  const [correcting, setCorrecting] = useState(false)
-  const [correctedText, setCorrectedText] = useState<string | null>(null)
-  const [corrections, setCorrections] = useState<any[]>([])
-  const [showCorrectionPanel, setShowCorrectionPanel] = useState(false)
   const [meetingId, setMeetingId] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const router = useRouter()
 
-  // 获取 meetingId
+  const handleCopyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      toast.success('已复制到剪贴板')
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error('复制失败')
+    }
+  }
+
   useEffect(() => {
     params.then(({ id }) => setMeetingId(id))
   }, [params])
@@ -82,24 +87,15 @@ export default function MeetingPage({
     if (!meetingId || !meeting) return
 
     if (meeting.status === 'TRANSCRIBING' || meeting.status === 'PENDING' || meeting.status === 'UPLOADING') {
-      console.log('开始轮询，状态:', meeting.status)
       const interval = setInterval(async () => {
-        console.log('轮询触发...')
-        // 先调用轮询API获取最新状态
         try {
           await fetch('/api/meetings/poll', { method: 'POST' })
-          console.log('轮询API调用成功')
         } catch (e) {
           console.error('轮询失败:', e)
         }
-        // 然后刷新会议数据
         fetchMeeting()
-        console.log('刷新会议数据完成')
       }, 3000)
-      return () => {
-        console.log('停止轮询')
-        clearInterval(interval)
-      }
+      return () => clearInterval(interval)
     }
   }, [meetingId, meeting, fetchMeeting])
 
@@ -138,38 +134,6 @@ export default function MeetingPage({
     }).format(new Date(dateStr))
   }
 
-  const handleCorrection = async () => {
-    if (!meeting?.transcription) return
-
-    setCorrecting(true)
-    setShowCorrectionPanel(true)
-
-    try {
-      const vocabList = vocabulary
-        .split(',')
-        .map(v => v.trim())
-        .filter(v => v.length > 0)
-
-      const res = await fetch(`/api/meetings/${meeting.id}/correction`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic, vocabulary: vocabList }),
-      })
-
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || '纠错失败')
-
-      setCorrectedText(data.data.correctedText)
-      setCorrections(data.data.corrections || [])
-      toast.success('纠错完成')
-    } catch (error) {
-      console.error('纠错失败:', error)
-      toast.error(error instanceof Error ? error.message : '纠错失败')
-    } finally {
-      setCorrecting(false)
-    }
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
@@ -202,10 +166,21 @@ export default function MeetingPage({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      <div className="container mx-auto px-4 py-16">
+      <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
+          {/* 返回按钮 */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push('/')}
+            className="mb-4"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            返回首页
+          </Button>
+
           {/* Header */}
-          <div className="mb-8">
+          <div className="mb-6">
             <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
               {meeting.title}
             </h1>
@@ -288,131 +263,6 @@ export default function MeetingPage({
             </Card>
           )}
 
-          {/* 转写结果 */}
-          {meeting.transcription && (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  转写结果
-                  <Badge variant="outline" className="border-blue-300 text-blue-600 text-xs">
-                    qwen3-asr-flash-filetrans
-                  </Badge>
-                  <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-xs">
-                    {(correctedText || meeting.transcription.fullText).length} 字
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {correcting ? (
-                  <div className="flex items-center gap-3 py-8 text-purple-600">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
-                    <span className="text-sm">纠错进行中，请耐心等待</span>
-                  </div>
-                ) : (
-                  <div className="prose dark:prose-invert max-w-none">
-                    <p className="whitespace-pre-wrap text-sm break-words overflow-wrap-anywhere">
-                      {correctedText || meeting.transcription.fullText}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* 纠错功能 */}
-          {meeting.transcription && (
-            <Card className="mb-6 border-purple-200 dark:border-purple-800">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <span>文字稿纠错</span>
-                  <Badge variant="outline" className="border-purple-300 text-purple-600 text-xs">
-                    gpt-5.4-mini
-                  </Badge>
-                  {correctedText && (
-                    <Badge variant="default" className="bg-purple-600">已完成</Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* 纠错输入 */}
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                      会议主题（可选）
-                    </label>
-                    <Input
-                      placeholder="如：产品需求评审会议"
-                      value={topic}
-                      onChange={(e) => setTopic(e.target.value)}
-                      disabled={correcting}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                      常用词汇列表（可选，逗号分隔）
-                    </label>
-                    <Input
-                      placeholder="如：需求评审、UI设计、技术方案"
-                      value={vocabulary}
-                      onChange={(e) => setVocabulary(e.target.value)}
-                      disabled={correcting}
-                    />
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    onClick={handleCorrection}
-                    disabled={correcting}
-                    className="bg-purple-600 hover:bg-purple-700"
-                  >
-                    {correcting ? (
-                      <>
-                        <span className="animate-spin mr-2">⏳</span>
-                        纠错中...
-                      </>
-                    ) : (
-                      '开始纠错'
-                    )}
-                  </Button>
-                  {correctedText && (
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowCorrectionPanel(!showCorrectionPanel)}
-                    >
-                      {showCorrectionPanel ? '隐藏' : '查看'}纠错详情
-                    </Button>
-                  )}
-                </div>
-
-                {/* 纠错详情 */}
-                {showCorrectionPanel && corrections.length > 0 && (
-                  <div className="mt-4 pt-4 border-t">
-                    <h4 className="text-sm font-medium mb-3">纠错详情（共 {corrections.length} 处）</h4>
-                    <div className="space-y-3 max-h-60 overflow-y-auto">
-                      {corrections.map((c, i) => (
-                        <div key={i} className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 text-sm">
-                          <div className="flex items-start gap-2">
-                            <span className="text-red-500 line-through min-w-[80px]">{c.original}</span>
-                            <span className="text-slate-400">→</span>
-                            <span className="text-green-600 dark:text-green-400">{c.corrected}</span>
-                          </div>
-                          <p className="text-slate-500 mt-1 text-xs">{c.reason}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {showCorrectionPanel && corrections.length === 0 && correctedText && (
-                  <div className="mt-4 pt-4 border-t">
-                    <p className="text-sm text-slate-500">没有发现需要纠错的地方，文字稿已经很完善了！</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
           {/* 会议纪要生成中 */}
           {meeting.status === 'SUMMARIZING' && (
             <Card className="mb-6 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
@@ -436,15 +286,29 @@ export default function MeetingPage({
           {meeting.summary && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  会议纪要
-                  <Badge variant="outline" className="border-amber-300 text-amber-600 text-xs">
-                    gpt-5.4-mini
-                  </Badge>
-                  <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-xs">
-                    {meeting.summary.content.length} 字
-                  </Badge>
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    会议纪要
+                    <Badge variant="outline" className="border-amber-300 text-amber-600 text-xs">
+                      gpt-5.4-mini
+                    </Badge>
+                    <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-xs">
+                      {meeting.summary.content.length} 字
+                    </Badge>
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleCopyText(meeting.summary!.content)}
+                  >
+                    {copied ? (
+                      <Check className="w-4 h-4 mr-1 text-green-600" />
+                    ) : (
+                      <Copy className="w-4 h-4 mr-1" />
+                    )}
+                    {copied ? '已复制' : '复制'}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="prose dark:prose-invert max-w-none markdown-content">
@@ -462,22 +326,6 @@ export default function MeetingPage({
               </CardContent>
             </Card>
           )}
-
-          {/* 操作按钮 */}
-          <div className="mt-8 flex gap-4">
-            <a
-              href="/upload"
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              上传新文件
-            </a>
-            <a
-              href="/"
-              className="px-6 py-3 bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
-            >
-              返回首页
-            </a>
-          </div>
         </div>
       </div>
     </div>

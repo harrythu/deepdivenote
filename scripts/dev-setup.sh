@@ -51,19 +51,11 @@ echo -e "${GREEN}✅ Docker Compose$(docker compose version)${NC}"
 echo ""
 echo "📝 检查环境变量配置..."
 if [ ! -f .env ]; then
-    echo -e "${YELLOW}⚠️  .env 文件不存在，正在从 .env.example 复制...${NC}"
-    cp .env.example .env
-    echo -e "${GREEN}✅ .env 文件已创建${NC}"
-    echo -e "${YELLOW}⚠️  请编辑 .env 文件，填入您的 API Keys${NC}"
-    echo ""
-    read -p "是否现在编辑 .env 文件？(y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        ${EDITOR:-nano} .env
-    fi
-else
-    echo -e "${GREEN}✅ .env 文件已存在${NC}"
+    echo -e "${RED}❌ .env 文件不存在${NC}"
+    echo -e "${YELLOW}请创建并配置 .env 文件${NC}"
+    exit 1
 fi
+echo -e "${GREEN}✅ .env 文件存在${NC}"
 
 # 检查 API Keys
 echo ""
@@ -85,15 +77,8 @@ else
 fi
 
 if [ "$API_KEY_MISSING" = true ]; then
-    echo -e "${YELLOW}⚠️  请在 .env 文件中配置 API Keys 后再继续${NC}"
-    echo ""
-    read -p "是否现在编辑 .env 文件？(y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        ${EDITOR:-nano} .env
-    else
-        exit 1
-    fi
+    echo -e "${RED}❌ 请在 .env 中配置 API Keys 后再继续${NC}"
+    exit 1
 fi
 
 # 安装依赖

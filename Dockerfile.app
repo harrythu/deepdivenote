@@ -36,6 +36,10 @@ COPY --from=rebuild /app/.next/standalone ./
 COPY --from=rebuild /app/.next/static ./.next/static
 COPY --from=rebuild /app/prisma ./prisma
 
+# 复制系统词汇表和模板文件
+COPY --from=rebuild /app/voca-*.txt ./
+COPY --from=rebuild /app/default_*.txt ./
+
 USER nextjs
 
 EXPOSE 3000

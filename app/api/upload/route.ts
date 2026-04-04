@@ -4,6 +4,7 @@ import { ossService } from '@/lib/services/oss'
 import { createQwenASRService } from '@/lib/services/qwen-asr'
 import { prisma } from '@/lib/db/prisma'
 import { MeetingStatus } from '@prisma/client'
+import { getCurrentUser } from '@/lib/auth/get-user'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -61,6 +62,9 @@ export async function POST(req: NextRequest) {
 
     console.log(`接收到文件: ${file.name}, 大小: ${file.size} bytes`)
 
+    // 获取当前用户（如果已登录）
+    const currentUser = await getCurrentUser()
+
     // 1. 创建Meeting记录
     const meeting = await prisma.meeting.create({
       data: {
@@ -69,10 +73,26 @@ export async function POST(req: NextRequest) {
         audioSize: file.size,
         status: MeetingStatus.UPLOADING,
         progress: 0,
+        userId: currentUser?.id, // 关联用户
       },
     })
 
     console.log(`创建Meeting记录: ${meeting.id}`)
+
+    // 如果用户已登录，创建历史记录
+    if (currentUser) {
+      const now = new Date()
+      await prisma.meetingHistory.create({
+        data: {
+          meetingId: meeting.id,
+          uploadDate: now,
+          uploadTime: now,
+          fileName: file.name,
+        },
+      }).catch((error) => {
+        console.error('创建历史记录失败:', error)
+      })
+    }
 
     try {
       // 2. 转换文件为Buffer

@@ -210,7 +210,8 @@ deepdivenote/
 │   └── dev-setup.sh         # 开发环境配置脚本 ✅
 ├── .env                     # 环境变量 ✅
 ├── .env.example             # 环境变量模板 ✅
-├── docker-compose.yml       # Docker 配置 ✅
+├── docker-compose.yml       # 本地开发 Docker 配置 ✅
+├── docker-compose.prod.yml  # 生产环境 Docker 配置 ✅
 ├── prisma.config.ts         # Prisma 配置 ✅
 ├── tsconfig.json            # TypeScript 配置 ✅
 ├── next.config.ts           # Next.js 配置 ✅

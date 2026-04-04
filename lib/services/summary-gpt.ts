@@ -55,16 +55,16 @@ export class SummaryService {
       console.warn('【纪要服务】加载访谈纪要模板失败:', error)
     }
 
-    // 加载会议纪要模板 (JSON 输出)
+    // 加载投资人模板 (Markdown 输出)
     try {
-      const meetingPath = path.join(process.cwd(), 'default_meeting_prompt.txt')
-      if (fs.existsSync(meetingPath)) {
-        const prompt = fs.readFileSync(meetingPath, 'utf-8')
-        this.templates.set('meeting', { prompt, needsJson: true })
-        console.log('【纪要服务】已加载会议纪要模板')
+      const investorPath = path.join(process.cwd(), 'default_investor_prompt.txt')
+      if (fs.existsSync(investorPath)) {
+        const prompt = fs.readFileSync(investorPath, 'utf-8')
+        this.templates.set('investor', { prompt, needsJson: false })
+        console.log('【纪要服务】已加载投资人模板')
       }
     } catch (error) {
-      console.warn('【纪要服务】加载会议纪要模板失败:', error)
+      console.warn('【纪要服务】加载投资人模板失败:', error)
     }
   }
 
@@ -77,8 +77,8 @@ export class SummaryService {
     for (const [id] of this.templates) {
       if (id === 'interview') {
         result.push({ id, name: '访谈纪要模板', isCustom: false })
-      } else if (id === 'meeting') {
-        result.push({ id, name: '会议纪要模板', isCustom: false })
+      } else if (id === 'investor') {
+        result.push({ id, name: '投资人模板', isCustom: false })
       } else {
         result.push({ id, name: `${id} (自定义)`, isCustom: true })
       }
