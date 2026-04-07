@@ -165,26 +165,45 @@ export default function TemplatesPage() {
     }
   }
 
-  // 保存模板（AI生成的或手工创建的）
-  const handleSave = async () => {
-    if (!name.trim()) {
-      toast.error('请输入模板名称')
-      return
-    }
+  // 错误状态（用于实时显示）
+  const [nameError, setNameError] = useState('')
+  const [contentError, setContentError] = useState('')
 
-    if (name.length > MAX_NAME_LENGTH) {
-      toast.error(`模板名称不能超过${MAX_NAME_LENGTH}字`)
-      return
+  // 验证模板名称
+  const validateName = (value: string) => {
+    if (!value.trim()) {
+      setNameError('请输入模板名称')
+      return false
     }
+    if (value.length > MAX_NAME_LENGTH) {
+      setNameError(`模板名称不能超过${MAX_NAME_LENGTH}字`)
+      return false
+    }
+    setNameError('')
+    return true
+  }
 
-    const templateContent = generatedTemplate || content
+  // 验证模板内容
+  const validateContent = (value: string) => {
+    const templateContent = generatedTemplate || value
     if (!templateContent.trim()) {
-      toast.error('请输入模板内容')
-      return
+      setContentError('请输入模板内容')
+      return false
     }
-
     if (templateContent.length > MAX_LENGTH) {
-      toast.error(`模板内容不能超过${MAX_LENGTH}字`)
+      setContentError(`模板内容不能超过${MAX_LENGTH}字`)
+      return false
+    }
+    setContentError('')
+    return true
+  }
+
+  const handleSave = async () => {
+    const templateContent = generatedTemplate || content
+
+    const isNameValid = validateName(name)
+    const isContentValid = validateContent(content)
+    if (!isNameValid || !isContentValid) {
       return
     }
 
@@ -588,9 +607,15 @@ export default function TemplatesPage() {
                       </div>
                       <Input
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={(e) => {
+                          setName(e.target.value)
+                          validateName(e.target.value)
+                        }}
+                        onBlur={() => validateName(name)}
                         placeholder="如：产品评审纪要"
+                        className={nameError ? 'border-red-500 focus:ring-red-400' : ''}
                       />
+                      {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
                     </div>
                   )}
 
@@ -646,10 +671,15 @@ export default function TemplatesPage() {
                     </div>
                     <Input
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => {
+                        setName(e.target.value)
+                        validateName(e.target.value)
+                      }}
+                      onBlur={() => validateName(name)}
                       placeholder="如：产品评审纪要"
-                      className={`bg-white dark:bg-slate-900 ${name.length > MAX_NAME_LENGTH ? 'border-red-500 focus:ring-red-400' : ''}`}
+                      className={`bg-white dark:bg-slate-900 ${nameError ? 'border-red-500 focus:ring-red-400' : ''}`}
                     />
+                    {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -662,10 +692,15 @@ export default function TemplatesPage() {
                     </div>
                     <textarea
                       value={content}
-                      onChange={(e) => setContent(e.target.value)}
+                      onChange={(e) => {
+                        setContent(e.target.value)
+                        validateContent(e.target.value)
+                      }}
+                      onBlur={() => validateContent(content)}
                       placeholder="输入模板内容，使用 {{transcription}} 占位转写内容..."
-                      className="w-full h-80 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      className={`w-full h-80 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 ${contentError ? 'border-red-500 focus:ring-red-400' : ''}`}
                     />
+                    {contentError && <p className="text-xs text-red-500 mt-1">{contentError}</p>}
                   </div>
                   <div className="flex gap-3">
                     <Button

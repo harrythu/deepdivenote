@@ -9,7 +9,6 @@ import Image from 'next/image'
 import { Card, CardContent } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
@@ -75,7 +74,6 @@ export default function Home() {
 
   // 文字稿模式相关状态
   const [textContent, setTextContent] = useState('')
-  const [textTitle, setTextTitle] = useState('')
   const [textFile, setTextFile] = useState<File | null>(null)
 
   // 纠错相关状态
@@ -386,7 +384,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: textTitle || '文字稿',
+          title: '文字稿',
           content: content,
         }),
       })
@@ -399,7 +397,6 @@ export default function Home() {
       setOriginalText(content)
       setTranscribing(false)
       setTextContent('')
-      setTextTitle('')
       setTextFile(null)
     } catch (error) {
       console.error('文字稿上传失败:', error)
@@ -547,13 +544,7 @@ export default function Home() {
           </div>
 
           {/* 中间导航链接 */}
-          <div className="flex items-center gap-6">
-            <a
-              href="/"
-              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-            >
-              会议转写
-            </a>
+          <div className="flex items-center gap-10">
             <a
               href="/settings/vocabularies"
               target="_blank"
@@ -695,14 +686,6 @@ export default function Home() {
             {/* 文字稿模式上传 */}
             {mode === 'text' && (
               <div className="space-y-4">
-                {/* 标题输入 */}
-                <Input
-                  value={textTitle}
-                  onChange={(e) => setTextTitle(e.target.value)}
-                  placeholder="输入会议标题（可选）"
-                  className="bg-white dark:bg-slate-900"
-                />
-
                 {/* 文字稿拖拽上传 */}
                 <div
                   {...getTextRootProps()}
