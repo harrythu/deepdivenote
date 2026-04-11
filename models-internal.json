@@ -1,6 +1,6 @@
 {
   "provider": "theta",
-  "baseURL": "https://antchat.alipay.com/api/v1", 
+  "baseURL": "https://antchat.alipay.com/v1", 
   "apiKeyEnv": "THETA_API_KEY",
   "models": [
     {
