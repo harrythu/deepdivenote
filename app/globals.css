@@ -117,6 +117,75 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* 蚂蚁内部版蓝色主题 - 仅用于导航栏和按钮 */
+[data-mode="internal"]:not(.dark) {
+  --nav-background: oklch(0.45 0.18 250);
+  --nav-foreground: oklch(1 0 0);
+  --nav-border: oklch(0.5 0.15 250);
+  --primary: oklch(0.55 0.2 250);
+  --primary-foreground: oklch(1 0 0);
+}
+
+[data-mode="internal"].dark {
+  --nav-background: oklch(0.2 0.12 250);
+  --nav-foreground: oklch(0.98 0.01 250);
+  --nav-border: oklch(0.35 0.1 250);
+  --primary: oklch(0.65 0.22 250);
+  --primary-foreground: oklch(1 0 0);
+}
+
+/* 导航栏内部版样式 */
+[data-mode="internal"] nav {
+  background-color: var(--nav-background, oklch(0.45 0.18 250)) !important;
+  border-color: var(--nav-border, oklch(0.5 0.15 250)) !important;
+}
+
+[data-mode="internal"] nav > * {
+  color: var(--nav-foreground, white) !important;
+}
+
+[data-mode="internal"] nav a:hover {
+  color: white !important;
+}
+
+[data-mode="internal"] nav .text-slate-500 {
+  color: oklch(0.85 0.02 250) !important;
+}
+
+[data-mode="internal"] nav .text-slate-400 {
+  color: oklch(0.75 0.02 250) !important;
+}
+
+/* 导航栏内部版文字颜色 */
+[data-mode="internal"] nav,
+[data-mode="internal"] nav * {
+  color: white;
+}
+
+[data-mode="internal"] nav a,
+[data-mode="internal"] nav button,
+[data-mode="internal"] nav p,
+[data-mode="internal"] nav h1,
+[data-mode="internal"] nav span {
+  color: white !important;
+}
+
+[data-mode="internal"] nav .text-slate-500,
+[data-mode="internal"] nav .text-slate-400,
+[data-mode="internal"] nav .text-slate-700,
+[data-mode="internal"] nav .text-slate-300 {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+[data-mode="internal"] nav .text-xs {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* 内部版主页标题颜色 */
+[data-mode="internal"] .main-title {
+  color: oklch(0.45 0.18 250) !important;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

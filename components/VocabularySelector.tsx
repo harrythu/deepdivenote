@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { useMode } from '@/lib/context/mode-context'
 
 interface SystemVocabulary {
   id: string
@@ -20,6 +21,7 @@ interface UserVocabulary {
   name: string
   wordCount: number
   words: string[]
+  availableMode?: string
 }
 
 interface VocabularySelectorProps {
@@ -45,12 +47,13 @@ export function VocabularySelector({
   const [newWord, setNewWord] = useState('')
   const [activeTab, setActiveTab] = useState<'system' | 'user'>('system')
   const router = useRouter()
+  const { mode: appMode } = useMode()
 
   useEffect(() => {
     if (isOpen) {
       loadTemplates()
     }
-  }, [isOpen])
+  }, [isOpen, appMode])
 
   const loadTemplates = async () => {
     setLoading(true)
@@ -62,8 +65,8 @@ export function VocabularySelector({
         setSystemVocabularies(systemData.data)
       }
 
-      // 加载用户词汇表
-      const userRes = await fetch('/api/user/vocabularies')
+      // 加载用户词汇表（根据当前模式过滤）
+      const userRes = await fetch(`/api/user/vocabularies?mode=${appMode}`)
       const userData = await userRes.json()
       if (userData.success) {
         setUserVocabularies(userData.data)

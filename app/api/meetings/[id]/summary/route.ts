@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSummaryService } from '@/lib/services/summary-gpt'
+import { SummaryService } from '@/lib/services/summary-gpt'
 import { prisma } from '@/lib/db/prisma'
-import { getCurrentUser } from '@/lib/auth/get-user'
+import { getFullUser } from '@/lib/auth/get-user'
 import { MeetingStatus, Prisma } from '@prisma/client'
+import { AppMode } from '@/lib/context/mode-context'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,7 +14,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(req: NextRequest) {
   try {
-    const summaryService = getSummaryService()
+    const summaryService = new SummaryService()
     const templates = summaryService.getTemplates()
 
     return NextResponse.json({
@@ -37,12 +38,21 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let appMode: AppMode = 'external'
+
   try {
     const { id } = await params
     const body = await req.json()
-    const { transcription, template = 'interview', customPrompt, model = 'openai/gpt-5.4-mini', maxTokens } = body
+    const {
+      transcription,
+      template = 'interview',
+      customPrompt,
+      model,
+      maxTokens,
+      mode,
+    } = body
 
-    console.log('【纪要API】接收到的模型参数:', model, 'maxTokens:', maxTokens)
+    console.log('【纪要API】接收到的模式:', mode, '模型参数:', model, 'maxTokens:', maxTokens)
 
     if (!transcription) {
       return NextResponse.json(
@@ -51,8 +61,19 @@ export async function POST(
       )
     }
 
-    // 获取当前用户（如果已登录）
-    const currentUser = await getCurrentUser()
+    // 获取当前用户
+    const currentUser = await getFullUser()
+
+    // 确定使用的模式
+    appMode = mode === 'internal' ? 'internal' : 'external'
+
+    // 如果是内部版但未登录，返回错误
+    if (appMode === 'internal' && !currentUser) {
+      return NextResponse.json(
+        { success: false, error: '内部版需要登录后才能使用' },
+        { status: 401 }
+      )
+    }
 
     // 如果用户已登录，关联会议与用户
     if (currentUser) {
@@ -64,7 +85,11 @@ export async function POST(
       })
     }
 
-    const summaryService = getSummaryService()
+    // 获取用户的 API KEY（内部版）
+    const userApiKey = currentUser?.thetaApiKey || undefined
+
+    // 创建纪要服务实例
+    const summaryService = new SummaryService(appMode, userApiKey)
 
     // 如果选择自定义模板，使用用户提供的提示词
     let templateId = template
@@ -75,7 +100,11 @@ export async function POST(
       summaryService.addTemplate(templateId, fullPrompt, false) // 自定义模板输出 Markdown
     }
 
-    const result = await summaryService.generateSummary(transcription, { template: templateId, model, maxTokens })
+    const result = await summaryService.generateSummary(transcription, {
+      template: templateId,
+      model,
+      maxTokens,
+    })
 
     // 保存纪要到数据库
     const summary = await prisma.summary.upsert({
@@ -86,7 +115,7 @@ export async function POST(
         actionItems: result.actionItems as unknown as Prisma.InputJsonValue,
         participants: result.participants,
         tags: result.tags,
-        model: model,
+        model: model || 'default',
       },
       create: {
         meetingId: id,
@@ -95,7 +124,7 @@ export async function POST(
         actionItems: result.actionItems as unknown as Prisma.InputJsonValue,
         participants: result.participants,
         tags: result.tags,
-        model: model,
+        model: model || 'default',
       },
     })
 
@@ -141,8 +170,27 @@ export async function POST(
     })
   } catch (error) {
     console.error('生成纪要失败:', error)
+
+    // 检查是否是超时错误（使用正则表达式匹配多种超时变体）
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    const errorMessageLower = errorMessage.toLowerCase()
+    const isTimeout = errorMessageLower.includes('timeout') ||
+                      errorMessageLower.includes('time out') ||
+                      errorMessageLower.includes('timed out') ||
+                      errorMessage.includes('AbortError') ||
+                      errorMessage.includes('ECONNRESET') ||
+                      errorMessage.includes('socket hang up')
+
+    // 如果是内部版且超时，返回特定错误提示
+    if (appMode === 'internal' && isTimeout) {
+      return NextResponse.json(
+        { success: false, error: 'INTERNAL_TIMEOUT', message: '目前蚂蚁内部版无法工作，请检查：1、您是否处于蚂蚁内网或者开启内网VPN；2、您配置的Theta API key是否有效' },
+        { status: 503 }
+      )
+    }
+
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '生成纪要失败' },
+      { success: false, error: errorMessage || '生成纪要失败' },
       { status: 500 }
     )
   }

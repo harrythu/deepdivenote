@@ -10,6 +10,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 应用模式枚举
+enum AppMode {
+  EXTERNAL    // 外部版
+  INTERNAL    // 蚂蚁内部版
+  BOTH        // 两者皆可
+}
+
+// 会议状态枚举
+enum MeetingStatus {
+  PENDING        // 等待处理
+  UPLOADING      // 上传中
+  TRANSCRIBING   // 转写中
+  SUMMARIZING    // 生成纪要中
+  COMPLETED      // 已完成
+  FAILED         // 失败
+}
+
 // 会议记录主表
 model Meeting {
   id          String   @id @default(cuid())
@@ -43,16 +60,6 @@ model Meeting {
   @@index([status])
   @@index([createdAt])
   @@index([userId])
-}
-
-// 会议状态枚举
-enum MeetingStatus {
-  PENDING        // 等待处理
-  UPLOADING      // 上传中
-  TRANSCRIBING   // 转写中
-  SUMMARIZING    // 生成纪要中
-  COMPLETED      // 已完成
-  FAILED         // 失败
 }
 
 // 转写结果表
@@ -139,6 +146,12 @@ model User {
 
   isActive      Boolean  @default(true) @map("is_active")
 
+  // 蚂蚁内部版：用户的 Theta API KEY（加密存储）
+  thetaApiKey   String?  @map("theta_api_key")
+
+  // 用户偏好的默认模式
+  preferredMode AppMode  @default(EXTERNAL) @map("preferred_mode")
+
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
   lastLoginAt   DateTime? @map("last_login_at")
@@ -164,6 +177,9 @@ model UserVocabulary {
   sortOrder   Int      @default(0) @map("sort_order")
   isActive    Boolean  @default(true) @map("is_active")
 
+  // 可用模式：EXTERNAL=仅外部版, INTERNAL=仅内部版, BOTH=两者皆可
+  availableMode AppMode @default(BOTH) @map("available_mode")
+
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -184,6 +200,9 @@ model UserTemplate {
   sortOrder   Int      @default(0) @map("sort_order")
   isActive    Boolean  @default(true) @map("is_active")
   usageCount  Int      @default(0) @map("usage_count")
+
+  // 可用模式：EXTERNAL=仅外部版, INTERNAL=仅内部版, BOTH=两者皆可
+  availableMode AppMode @default(BOTH) @map("available_mode")
 
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")

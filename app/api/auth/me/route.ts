@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server'
-import { getCurrentUser } from '@/lib/auth/get-user'
+import { getFullUser } from '@/lib/auth/get-user'
 
 export async function GET() {
   try {
-    const user = await getCurrentUser()
+    const user = await getFullUser()
+
+    if (!user) {
+      return NextResponse.json({
+        success: false,
+        error: '未登录',
+      }, { status: 401 })
+    }
 
     return NextResponse.json({
       success: true,

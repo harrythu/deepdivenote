@@ -1,0 +1,45 @@
+{
+  "provider": "theta",
+  "baseURL": "https://antchat.alipay.com/api/v1", 
+  "apiKeyEnv": "THETA_API_KEY",
+  "models": [
+    {
+      "id": "Qwen3.5-397B-A17B",
+      "name": "Qwen3.5-397B-A17B",
+      "description": "千问旗舰",
+      "maxTokens": 256000
+    },
+    {
+      "id": "DeepSeek-V3.2",
+      "name": "DeepSeek-V3.2",
+      "description": "DeepSeek旗舰",
+      "maxTokens": 128000
+    },
+    {
+      "id": "MiniMax-M2.5",
+      "name": "MiniMax-M2.5",
+      "description": "MiniMax旗舰",
+      "maxTokens": 131070
+    },
+    {
+      "id": "Kimi-K2.5",
+      "name": "Kimi K2.5",
+      "description": "月之暗面",
+      "maxTokens": 262140
+    },
+    {
+      "id": "GLM-5.1",
+      "name": "GLM-5.1",
+      "description": "智谱旗舰",
+      "maxTokens": 128000
+    },
+        {
+      "id": "Ling-2.6-1T",
+      "name": "Ling-2.6-1T",
+      "description": "蚂蚁百灵",
+      "maxTokens": 32000
+    }
+  ],
+  "default": "Qwen3.5-397B-A17B",
+  "defaultMaxTokens":256000
+}

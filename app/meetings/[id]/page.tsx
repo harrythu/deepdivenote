@@ -7,6 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { Copy, Check, ArrowLeft } from 'lucide-react'
+import { useMode } from '@/lib/context/mode-context'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useRouter } from 'next/navigation'
@@ -42,6 +43,20 @@ export default function MeetingPage({
   const [meetingId, setMeetingId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const router = useRouter()
+  const [defaultModelName, setDefaultModelName] = useState('qwen-turbo')
+  const { mode: appMode } = useMode()
+
+  useEffect(() => {
+    fetch(`/api/models?mode=${appMode}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data.default) {
+          const model = data.data.models.find((m: any) => m.id === data.data.default)
+          setDefaultModelName(model?.name || data.data.default)
+        }
+      })
+      .catch(() => {})
+  }, [appMode])
 
   const handleCopyText = async (text: string) => {
     try {
@@ -290,7 +305,7 @@ export default function MeetingPage({
                   <CardTitle className="flex items-center gap-2">
                     会议纪要
                     <Badge variant="outline" className="border-amber-300 text-amber-600 text-xs">
-                      gpt-5.4-mini
+                      {defaultModelName}
                     </Badge>
                     <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-xs">
                       {meeting.summary.content.length} 字

@@ -16,6 +16,7 @@ interface Vocabulary {
   description: string | null
   words: string[]
   wordCount: number
+  availableMode?: string
   createdAt: string
 }
 
@@ -30,6 +31,7 @@ export default function VocabulariesPage() {
   // 表单状态
   const [name, setName] = useState('')
   const [words, setWords] = useState('')
+  const [availableMode, setAvailableMode] = useState('BOTH')
   const [saving, setSaving] = useState(false)
 
   // 限制常量
@@ -99,7 +101,7 @@ export default function VocabulariesPage() {
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, words: wordList }),
+        body: JSON.stringify({ name, words: wordList, availableMode }),
       })
       const data = await res.json()
 
@@ -140,6 +142,7 @@ export default function VocabulariesPage() {
     setEditingId(vocab.id)
     setName(vocab.name)
     setWords(vocab.words.join('\n'))
+    setAvailableMode(vocab.availableMode || 'BOTH')
     setShowForm(true)
   }
 
@@ -147,6 +150,7 @@ export default function VocabulariesPage() {
   const resetForm = () => {
     setName('')
     setWords('')
+    setAvailableMode('BOTH')
     setEditingId(null)
     setShowForm(false)
   }
@@ -309,6 +313,39 @@ export default function VocabulariesPage() {
                         请输入至少一个词汇
                       </p>
                     )}
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                      可用范围
+                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="availableMode"
+                          value="BOTH"
+                          checked={availableMode === 'BOTH'}
+                          onChange={(e) => setAvailableMode(e.target.value)}
+                          className="w-4 h-4 text-blue-600"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                          外部版和内部版均可使用
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="availableMode"
+                          value="INTERNAL"
+                          checked={availableMode === 'INTERNAL'}
+                          onChange={(e) => setAvailableMode(e.target.value)}
+                          className="w-4 h-4 text-blue-600"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                          仅蚂蚁内部版可用
+                        </span>
+                      </label>
+                    </div>
                   </div>
                   <div className="flex gap-3">
                     <Button

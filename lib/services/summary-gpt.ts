@@ -1,12 +1,16 @@
 import OpenAI from 'openai'
 import * as fs from 'fs'
 import * as path from 'path'
+import { AppMode } from '@/lib/context/mode-context'
+import { getModelConfig } from './llm-client'
 
 export interface SummaryOptions {
   template?: string  // 模板ID或自定义提示词
   language?: 'zh' | 'en' | 'auto'
-  model?: string     // 模型ID，如 openai/gpt-5.4-mini
+  model?: string     // 模型ID
   maxTokens?: number // 最大输出token数
+  mode?: AppMode     // 应用模式
+  userApiKey?: string // 用户自己的 API KEY（内部版使用）
 }
 
 export interface SummaryResult {
@@ -25,17 +29,42 @@ export interface ActionItem {
 }
 
 /**
- * ZenMux OpenAI SDK 会议纪要生成服务
+ * 创建纪要服务的客户端
+ */
+function createClient(options: { mode: AppMode; userApiKey?: string }): OpenAI {
+  const { mode, userApiKey } = options
+
+  if (mode === 'internal') {
+    // 内部版：使用 Theta API
+    if (!userApiKey) {
+      throw new Error('内部版需要配置您的 API KEY')
+    }
+    const config = getModelConfig('internal')
+    return new OpenAI({
+      apiKey: userApiKey,
+      baseURL: config.baseURL,
+    })
+  } else {
+    // 外部版：使用 ZenMux API
+    const config = getModelConfig('external')
+    return new OpenAI({
+      apiKey: process.env[config.apiKeyEnv] || process.env.ZENMUX_API_KEY,
+      baseURL: config.baseURL,
+    })
+  }
+}
+
+/**
+ * 会议纪要生成服务
  */
 export class SummaryService {
-  private client: OpenAI
+  private mode: AppMode
+  private userApiKey?: string
   private templates: Map<string, { prompt: string; needsJson: boolean }> = new Map()
 
-  constructor(apiKey?: string) {
-    this.client = new OpenAI({
-      apiKey: apiKey || process.env.ZENMUX_API_KEY,
-      baseURL: 'https://zenmux.ai/api/v1',
-    })
+  constructor(mode: AppMode = 'external', userApiKey?: string) {
+    this.mode = mode
+    this.userApiKey = userApiKey
     this.loadTemplates()
   }
 
@@ -99,22 +128,25 @@ export class SummaryService {
   /**
    * 生成会议纪要
    */
-  async generateSummary(transcription: string, options: SummaryOptions = {}): Promise<SummaryResult> {
-    const { template: templateId = 'interview', model = 'openai/gpt-5.4-mini', maxTokens = 64000 } = options
+  async generateSummary(transcription: string, options: Omit<SummaryOptions, 'mode' | 'userApiKey'> = {}): Promise<SummaryResult> {
+    const { template: templateId = 'interview', model, maxTokens } = options
+
+    // 获取对应的模型配置
+    const config = getModelConfig(this.mode)
+    const defaultModel = model || config.default
+    const defaultMaxTokens = maxTokens || config.defaultMaxTokens
 
     // 获取模板
     let promptTemplate = ''
     let needsJsonOutput = false
 
     if (templateId === 'custom') {
-      // 自定义模板由前端提供，这里不应该直接调用
       throw new Error('请提供自定义提示词')
     } else if (this.templates.has(templateId)) {
       const template = this.templates.get(templateId)!
       promptTemplate = template.prompt
       needsJsonOutput = template.needsJson
     } else {
-      // 默认使用访谈纪要模板
       const defaultTemplate = this.templates.get('interview')
       if (defaultTemplate) {
         promptTemplate = defaultTemplate.prompt
@@ -124,16 +156,15 @@ export class SummaryService {
       }
     }
 
-    // 替换转写内容
     const prompt = promptTemplate.replace('{{transcription}}', transcription)
+    const client = createClient({ mode: this.mode, userApiKey: this.userApiKey })
 
-    console.log(`【纪要生成】使用模型: ${model}, maxTokens: ${maxTokens}, 模板: ${templateId}, 需要JSON解析: ${needsJsonOutput}, 文字长度: ${transcription.length}`)
+    console.log(`【纪要生成】模式: ${this.mode}, 模型: ${defaultModel}, 模板: ${templateId}, 文字长度: ${transcription.length}`)
 
     try {
-      // 使用 OpenAI SDK 流式响应
-      const stream = await this.client.chat.completions.create({
-        model: model,
-        max_tokens: maxTokens,
+      const stream = await client.chat.completions.create({
+        model: defaultModel,
+        max_tokens: defaultMaxTokens,
         messages: [
           {
             role: 'user',
@@ -154,9 +185,7 @@ export class SummaryService {
       }
       console.log(`【纪要生成】收到 ${chunkCount} 个 chunk, 最终文本长度: ${fullText.length}`)
 
-      // 如果不需要 JSON 输出，直接返回 Markdown 内容
       if (!needsJsonOutput) {
-        console.log('【纪要生成】Markdown 格式输出')
         return {
           content: fullText,
           keyPoints: [],
@@ -180,7 +209,6 @@ export class SummaryService {
     try {
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       if (!jsonMatch) {
-        console.error('【纪要解析失败】无法匹配 JSON')
         return {
           content: text,
           keyPoints: [],
@@ -200,7 +228,6 @@ export class SummaryService {
         tags: parsed.tags || [],
       }
     } catch (error) {
-      console.error('【纪要解析异常】:', error)
       return {
         content: text,
         keyPoints: [],
@@ -212,12 +239,17 @@ export class SummaryService {
   }
 }
 
-// 导出单例
+// 导出单例（仅用于外部版）
 let summaryServiceInstance: SummaryService | null = null
 
-export function getSummaryService(): SummaryService {
+export function getSummaryService(mode?: AppMode, userApiKey?: string): SummaryService {
+  // 如果指定了 mode 或 userApiKey，创建新的实例
+  if (mode || userApiKey) {
+    return new SummaryService(mode, userApiKey)
+  }
+  // 否则返回外部版的单例
   if (!summaryServiceInstance) {
-    summaryServiceInstance = new SummaryService()
+    summaryServiceInstance = new SummaryService('external')
   }
   return summaryServiceInstance
 }

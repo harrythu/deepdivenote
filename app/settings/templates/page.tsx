@@ -17,6 +17,7 @@ interface Template {
   content: string
   category: string | null
   usageCount: number
+  availableMode?: string
   createdAt: string
 }
 
@@ -51,6 +52,7 @@ export default function TemplatesPage() {
   // 手工创建状态
   const [name, setName] = useState('')
   const [content, setContent] = useState('')
+  const [availableMode, setAvailableMode] = useState('BOTH')
   const [saving, setSaving] = useState(false)
 
   const originalFileRef = useRef<HTMLInputElement>(null)
@@ -159,7 +161,13 @@ export default function TemplatesPage() {
       setGeneratedTemplate(data.data.template)
       toast.success('提示词模板已生成')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '生成失败')
+      const errorMessage = error instanceof Error ? error.message : '生成失败'
+      // 检查是否是内部版超时错误
+      if (errorMessage === 'INTERNAL_TIMEOUT' || errorMessage.includes('timeout')) {
+        toast.error('目前蚂蚁内部版无法工作，请检查：1、您是否处于蚂蚁内网或者开启内网VPN；2、您配置的Theta API key是否有效')
+      } else {
+        toast.error(errorMessage)
+      }
     } finally {
       setGenerating(false)
     }
@@ -220,7 +228,7 @@ export default function TemplatesPage() {
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, content: templateContent }),
+        body: JSON.stringify({ name, content: templateContent, availableMode }),
       })
       const data = await res.json()
 
@@ -261,6 +269,7 @@ export default function TemplatesPage() {
     setEditingId(template.id)
     setName(template.name)
     setContent(template.content)
+    setAvailableMode(template.availableMode || 'BOTH')
     setGeneratedTemplate('')
     setCreateMode('manual')
     setShowForm(true)
@@ -270,6 +279,7 @@ export default function TemplatesPage() {
   const resetForm = () => {
     setName('')
     setContent('')
+    setAvailableMode('BOTH')
     setEditingId(null)
     setShowForm(false)
     setCreateMode(null)
@@ -304,8 +314,6 @@ export default function TemplatesPage() {
   }
 
   const contentLength = (generatedTemplate || content).length
-  const budgetModels = models.filter(m => m.category === 'budget')
-  const flagshipModels = models.filter(m => m.category === 'flagship')
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12">
@@ -440,45 +448,23 @@ export default function TemplatesPage() {
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
                       选择大模型
                     </label>
-                    <div className="space-y-2">
-                      <div className="text-xs text-slate-500 mb-2">经济型模型</div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {budgetModels.map(model => (
-                          <button
-                            key={model.id}
-                            onClick={() => setSelectedModel(model.id)}
-                            className={`p-2 rounded-lg border text-left transition-colors ${
-                              selectedModel === model.id
-                                ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20'
-                                : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                            }`}
-                          >
-                            <div className="text-sm font-medium text-slate-900 dark:text-white">
-                              {model.name}
-                            </div>
-                            <div className="text-xs text-slate-500">{model.description}</div>
-                          </button>
-                        ))}
-                      </div>
-                      <div className="text-xs text-slate-500 mb-2 mt-4">旗舰型模型</div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {flagshipModels.map(model => (
-                          <button
-                            key={model.id}
-                            onClick={() => setSelectedModel(model.id)}
-                            className={`p-2 rounded-lg border text-left transition-colors ${
-                              selectedModel === model.id
-                                ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20'
-                                : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
-                            }`}
-                          >
-                            <div className="text-sm font-medium text-slate-900 dark:text-white">
-                              {model.name}
-                            </div>
-                            <div className="text-xs text-slate-500">{model.description}</div>
-                          </button>
-                        ))}
-                      </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {models.map(model => (
+                        <button
+                          key={model.id}
+                          onClick={() => setSelectedModel(model.id)}
+                          className={`p-2 rounded-lg border text-left transition-colors ${
+                            selectedModel === model.id
+                              ? 'border-purple-400 bg-purple-50 dark:bg-purple-900/20'
+                              : 'border-slate-200 dark:border-slate-700 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="text-sm font-medium text-slate-900 dark:text-white">
+                            {model.name}
+                          </div>
+                          <div className="text-xs text-slate-500">{model.description}</div>
+                        </button>
+                      ))}
                     </div>
                   </div>
 
@@ -621,24 +607,60 @@ export default function TemplatesPage() {
 
                   {/* 保存按钮 */}
                   {generatedTemplate && (
-                    <div className="flex gap-3">
-                      <Button
-                        onClick={handleSave}
-                        disabled={saving || contentLength > MAX_LENGTH}
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        <Save className="w-4 h-4 mr-2" />
-                        {saving ? '保存中...' : '保存'}
-                      </Button>
-                      <Button
-                        onClick={resetForm}
-                        variant="outline"
-                        disabled={saving}
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        取消
-                      </Button>
-                    </div>
+                    <>
+                      {/* 模板可见性 */}
+                      <div>
+                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                          模板可见性
+                        </label>
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="aiTemplateAvailableMode"
+                              value="BOTH"
+                              checked={availableMode === 'BOTH'}
+                              onChange={(e) => setAvailableMode(e.target.value)}
+                              className="w-4 h-4 text-blue-600"
+                            />
+                            <span className="text-sm text-slate-700 dark:text-slate-300">
+                              外部版和内部版均可使用
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="aiTemplateAvailableMode"
+                              value="INTERNAL"
+                              checked={availableMode === 'INTERNAL'}
+                              onChange={(e) => setAvailableMode(e.target.value)}
+                              className="w-4 h-4 text-blue-600"
+                            />
+                            <span className="text-sm text-slate-700 dark:text-slate-300">
+                              仅蚂蚁内部版可用
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={handleSave}
+                          disabled={saving || contentLength > MAX_LENGTH}
+                          className="bg-blue-600 hover:bg-blue-700"
+                        >
+                          <Save className="w-4 h-4 mr-2" />
+                          {saving ? '保存中...' : '保存'}
+                        </Button>
+                        <Button
+                          onClick={resetForm}
+                          variant="outline"
+                          disabled={saving}
+                        >
+                          <X className="w-4 h-4 mr-2" />
+                          取消
+                        </Button>
+                      </div>
+                    </>
                   )}
 
                   {/* 取消按钮 */}
@@ -701,6 +723,39 @@ export default function TemplatesPage() {
                       className={`w-full h-80 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 ${contentError ? 'border-red-500 focus:ring-red-400' : ''}`}
                     />
                     {contentError && <p className="text-xs text-red-500 mt-1">{contentError}</p>}
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                      可用范围
+                    </label>
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="templateAvailableMode"
+                          value="BOTH"
+                          checked={availableMode === 'BOTH'}
+                          onChange={(e) => setAvailableMode(e.target.value)}
+                          className="w-4 h-4 text-blue-600"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                          外部版和内部版均可使用
+                        </span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="templateAvailableMode"
+                          value="INTERNAL"
+                          checked={availableMode === 'INTERNAL'}
+                          onChange={(e) => setAvailableMode(e.target.value)}
+                          className="w-4 h-4 text-blue-600"
+                        />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">
+                          仅蚂蚁内部版可用
+                        </span>
+                      </label>
+                    </div>
                   </div>
                   <div className="flex gap-3">
                     <Button

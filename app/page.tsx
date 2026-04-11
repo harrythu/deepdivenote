@@ -11,9 +11,11 @@ import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Toaster } from '@/components/ui/sonner'
 import { VocabularySelector } from '@/components/VocabularySelector'
 import { UserMenu } from '@/components/auth/UserMenu'
+import { ModeSwitcher } from '@/components/ModeSwitcher'
+import { ModeIndicator } from '@/components/ModeIndicator'
+import { useMode } from '@/lib/context/mode-context'
 import { Plus, X, Copy, Check } from 'lucide-react'
 
 // 深海主题 Logo
@@ -107,7 +109,6 @@ export default function Home() {
   // 模型选择相关状态
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; category: string; description: string; maxTokens: number}[]>([])
   const [selectedModel, setSelectedModel] = useState('openai/gpt-5.4-mini')
-  const [modelMessage, setModelMessage] = useState('')
   const [summaryCopied, setSummaryCopied] = useState(false)
 
   // 获取当前选中模型的分类
@@ -132,11 +133,13 @@ export default function Home() {
     loadTemplates()
   }, [])
 
-  // 加载用户模板
+  // 获取当前模式
+  const { mode: appMode, isAuthenticated, userApiKey } = useMode()
+
   // 加载用户模板
   const loadUserTemplates = async () => {
     try {
-      const res = await fetch('/api/user/templates')
+      const res = await fetch(`/api/user/templates?mode=${appMode}`)
       const data = await res.json()
       if (data.success) {
         setUserTemplates(data.data.map((t: any) => ({
@@ -152,7 +155,7 @@ export default function Home() {
 
   useEffect(() => {
     loadUserTemplates()
-  }, [])
+  }, [appMode])
 
   // 页面可见性变化时刷新用户模板（从其他标签页返回时）
   useEffect(() => {
@@ -168,10 +171,11 @@ export default function Home() {
   }, [])
 
   // 加载模型列表
+
   useEffect(() => {
     const loadModels = async () => {
       try {
-        const res = await fetch('/api/models')
+        const res = await fetch(`/api/models?mode=${appMode}`)
         const data = await res.json()
         if (data.success) {
           setAvailableModels(data.data.models)
@@ -179,8 +183,6 @@ export default function Home() {
           const defaultModel = data.data.models.find((m: any) => m.id === data.data.default)
           if (defaultModel) {
             setSelectedModel(defaultModel.id)
-            // 设置默认提示语
-            setModelMessage(defaultModel.category === 'flagship' ? '完蛋，你要让我破产' : '很好，你很有节约意识')
           }
         }
       } catch (error) {
@@ -188,16 +190,11 @@ export default function Home() {
       }
     }
     loadModels()
-  }, [])
+  }, [appMode])
 
   // 模型变化时更新提示语
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId)
-    const model = availableModels.find(m => m.id === modelId)
-    if (model) {
-      // 旗舰模型：完蛋，你要让我破产；性价比模型：很好，你很有节约意识
-      setModelMessage(model.category === 'flagship' ? '完蛋，你要让我破产' : '很好，你很有节约意识')
-    }
   }
 
   // 复制纪要内容到剪贴板
@@ -459,7 +456,7 @@ export default function Home() {
       const res = await fetch(`/api/meetings/${meetingId}/correction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vocabulary: selectedVocabulary }),
+        body: JSON.stringify({ vocabulary: selectedVocabulary, mode: appMode }),
       })
       console.log('【纠错】响应状态:', res.status)
       const data = await res.json()
@@ -470,7 +467,13 @@ export default function Home() {
       toast.success('纠错完成')
     } catch (error) {
       console.error('【纠错】错误:', error)
-      toast.error(error instanceof Error ? error.message : '纠错失败')
+      const errorMessage = error instanceof Error ? error.message : '纠错失败'
+      // 检查是否是内部版超时错误
+      if (appMode === 'internal' && (errorMessage === 'INTERNAL_TIMEOUT' || errorMessage.includes('timeout'))) {
+        toast.error('目前蚂蚁内部版无法工作，请检查：1、您是否处于蚂蚁内网或者开启内网VPN；2、您配置的Theta API key是否有效')
+      } else {
+        toast.error(errorMessage)
+      }
     } finally {
       setCorrecting(false)
     }
@@ -503,6 +506,7 @@ export default function Home() {
           customPrompt,
           model: selectedModel,
           maxTokens: availableModels.find(m => m.id === selectedModel)?.maxTokens || 64000,
+          mode: appMode,
         }),
       })
       console.log('【纪要】响应状态:', res.status)
@@ -513,7 +517,13 @@ export default function Home() {
       toast.success('纪要生成完成')
     } catch (error) {
       console.error('【纪要】错误:', error)
-      toast.error(error instanceof Error ? error.message : '纪要生成失败')
+      const errorMessage = error instanceof Error ? error.message : '纪要生成失败'
+      // 检查是否是内部版超时错误
+      if (appMode === 'internal' && (errorMessage === 'INTERNAL_TIMEOUT' || errorMessage.includes('timeout'))) {
+        toast.error('目前蚂蚁内部版无法工作，请检查：1、您是否处于蚂蚁内网或者开启内网VPN；2、您配置的Theta API key是否有效')
+      } else {
+        toast.error(errorMessage)
+      }
     } finally {
       setGeneratingSummary(false)
     }
@@ -528,28 +538,29 @@ export default function Home() {
 
   return (
     <>
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 relative overflow-x-hidden">
+      <div className="min-h-screen bg-background relative overflow-x-hidden">
         <Bubbles />
 
       {/* 顶部导航栏 */}
-      <nav className="relative z-10 border-b border-slate-200/50 dark:border-slate-800/50 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md">
+      <nav className="relative z-10 border-b border-border/50 bg-background/80 backdrop-blur-md data-[mode=internal]:bg-blue-600 data-[mode=internal]:border-blue-400">
         <div className="container mx-auto px-6 py-4 flex items-center justify-between">
           {/* 左侧 Logo */}
           <div className="flex items-center gap-3">
             <DeepDiveLogo className="w-10 h-10" />
-            <div>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">DeepDive</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">录音转写专家</p>
+            <div className="data-[mode=internal]:text-white">
+              <h1 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight data-[mode=internal]:text-white">DeepDive</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400 data-[mode=internal]:text-blue-100">录音转写专家</p>
             </div>
           </div>
 
           {/* 中间导航链接 */}
           <div className="flex items-center gap-10">
+            <ModeIndicator />
             <a
               href="/settings/vocabularies"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors data-[mode=internal]:text-white/90 data-[mode=internal]:hover:text-white"
             >
               常用词汇
             </a>
@@ -557,7 +568,7 @@ export default function Home() {
               href="/settings/templates"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors data-[mode=internal]:text-white/90 data-[mode=internal]:hover:text-white"
             >
               我的模板
             </a>
@@ -565,7 +576,7 @@ export default function Home() {
               href="/history"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors data-[mode=internal]:text-white/90 data-[mode=internal]:hover:text-white"
             >
               历史记录
             </a>
@@ -573,18 +584,16 @@ export default function Home() {
 
           {/* 右侧用户菜单 */}
           <div className="flex items-center gap-3">
+            <ModeSwitcher />
             <UserMenu />
             {(originalText || meetingId) && (
-              <Button
+              <button
                 onClick={resetForNewUpload}
-                variant="outline"
-                size="sm"
-                className="text-xs"
+                className={`text-sm hover:underline ${appMode === 'internal' ? 'text-white' : 'text-slate-900'}`}
               >
                 开始新上传
-              </Button>
+              </button>
             )}
-            <span className="text-xs text-slate-400 hidden sm:inline">最大 500MB</span>
           </div>
         </div>
       </nav>
@@ -594,7 +603,7 @@ export default function Home() {
         <div className="container mx-auto px-6 max-w-6xl">
           {/* 标题 */}
           <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-4 tracking-tight">
+            <h2 className="text-4xl md:text-5xl font-bold mb-4 tracking-tight text-slate-900 dark:text-white main-title">
               深入每一场会议
             </h2>
             <p className="text-lg text-slate-600 dark:text-slate-400">
@@ -751,7 +760,15 @@ export default function Home() {
 
                 {/* 上传按钮 */}
                 <Button
-                  onClick={handleTextUpload}
+                  onClick={() => {
+                    if (appMode === 'internal' && isAuthenticated && !userApiKey) {
+                      if (window.confirm('您尚未配置个人的 Theta API KEY，点击确认后将打开 API KEY 设置页面')) {
+                        window.open('/settings/api-key', '_blank')
+                      }
+                      return
+                    }
+                    handleTextUpload()
+                  }}
                   disabled={uploading || !textContent.trim()}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white"
                 >
@@ -798,6 +815,13 @@ export default function Home() {
                       onClick={() => {
                         if (!selectedFile) {
                           toast.error('请先选择文件')
+                          return
+                        }
+                        // 检查内部版是否配置了 API KEY
+                        if (appMode === 'internal' && isAuthenticated && !userApiKey) {
+                          if (window.confirm('您尚未配置个人的 Theta API KEY，点击确认后将打开 API KEY 设置页面')) {
+                            window.open('/settings/api-key', '_blank')
+                          }
                           return
                         }
                         setUploading(true)
@@ -993,7 +1017,7 @@ export default function Home() {
                     </h3>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="border-purple-300 text-purple-600 text-xs">
-                        gpt-5.4-mini
+                        {selectedModel}
                       </Badge>
                       <Badge
                         variant="outline"
@@ -1091,27 +1115,13 @@ export default function Home() {
                           onChange={(e) => handleModelChange(e.target.value)}
                           className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
                         >
-                          <optgroup label="💰 性价比模型">
-                            {availableModels.filter(m => m.category === 'budget').map((model) => (
-                              <option key={model.id} value={model.id}>
-                                {model.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="🚀 旗舰模型">
-                            {availableModels.filter(m => m.category === 'flagship').map((model) => (
-                              <option key={model.id} value={model.id}>
-                                {model.name}
-                              </option>
-                            ))}
-                          </optgroup>
+                          {availableModels.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
                         </select>
                       </div>
-                      {modelMessage && (
-                        <span className={`text-sm ${selectedModel.includes('flagship') ? 'text-red-500' : 'text-emerald-500'}`}>
-                          {modelMessage}
-                        </span>
-                      )}
                     </div>
                   </div>
 
@@ -1341,7 +1351,7 @@ export default function Home() {
       </main>
 
       {/* 页脚 */}
-      <footer className="py-8 border-t border-slate-200/10 bg-slate-50 dark:bg-slate-950">
+      <footer className="py-8 border-t border-border/10 bg-background">
         <div className="container mx-auto px-6 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <DeepDiveLogo className="w-6 h-6" />
@@ -1390,7 +1400,6 @@ export default function Home() {
         }
       `}</style>
       </div>
-      <Toaster />
 
       {/* 词汇选择弹窗 */}
       <VocabularySelector

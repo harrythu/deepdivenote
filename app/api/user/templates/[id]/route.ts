@@ -51,7 +51,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
     const user = await requireUser()
     const { id } = await params
     const body = await request.json()
-    const { name, description, content, category, sortOrder } = body
+    const { name, description, content, category, sortOrder, availableMode } = body
 
     // 检查模板是否存在且属于当前用户
     const existing = await prisma.userTemplate.findFirst({
@@ -66,6 +66,14 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json(
         { success: false, error: '模板不存在' },
         { status: 404 }
+      )
+    }
+
+    // 验证 availableMode
+    if (availableMode !== undefined && !['EXTERNAL', 'INTERNAL', 'BOTH'].includes(availableMode)) {
+      return NextResponse.json(
+        { success: false, error: '无效的可用模式' },
+        { status: 400 }
       )
     }
 
@@ -85,6 +93,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         ...(content !== undefined && { content }),
         ...(category !== undefined && { category }),
         ...(sortOrder !== undefined && { sortOrder }),
+        ...(availableMode !== undefined && { availableMode }),
       },
     })
 
