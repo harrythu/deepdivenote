@@ -4,16 +4,16 @@
   "apiKeyEnv": "THETA_API_KEY",
   "models": [
     {
-      "id": "Qwen3.5-397B-A17B",
-      "name": "Qwen3.5-397B-A17B",
-      "description": "千问旗舰",
-      "maxTokens": 256000
-    },
-    {
       "id": "DeepSeek-V3.2",
       "name": "DeepSeek-V3.2",
       "description": "DeepSeek旗舰",
       "maxTokens": 128000
+    },
+        {
+      "id": "Qwen3.5-397B-A17B",
+      "name": "Qwen3.5-397B-A17B",
+      "description": "千问旗舰",
+      "maxTokens": 256000
     },
     {
       "id": "MiniMax-M2.5",
@@ -40,6 +40,6 @@
       "maxTokens": 32000
     }
   ],
-  "default": "Qwen3.5-397B-A17B",
-  "defaultMaxTokens":256000
+  "default": "DeepSeek-V3.2",
+  "defaultMaxTokens":128000
 }
