@@ -192,13 +192,155 @@ docker-compose -f docker-compose.prod.yml logs -f
 # 重启所有服务
 docker-compose -f docker-compose.prod.yml restart
 
-# 更新部署
-cd /var/www/deepdivenote
-git pull
-docker-compose -f docker-compose.prod.yml up -d --build
-
 # 备份数据库
 docker exec deepdivenote-postgres pg_dump -U deepdivenote deepdivenote > backup_$(date +%Y%m%d).sql
+```
+
+---
+
+## 版本升级指南（保留用户数据）
+
+> ⚠️ **重要**：升级时绝对不要使用 `prisma db push`，该命令会重建表结构并**清空所有数据**。
+> 正确做法是使用 `prisma migrate deploy`，它只执行增量迁移，不影响已有数据。
+
+### 前提说明
+
+- 项目部署目录：`/var/www/deepdivenote`
+- 生产配置文件：`docker-compose.prod.yml`
+- 数据库容器名：`deepdivenote-postgres`
+- 应用容器名：`deepdivenote-app`
+
+### 整体流程
+
+```
+本地打包 → scp 上传
+    ↓
+服务器：pg_dump 备份数据库
+    ↓
+rsync 同步代码（自动跳过 .env 和 SSL 证书）
+    ↓
+docker-compose up -d --build（重新构建镜像）
+    ↓
+prisma migrate deploy（增量迁移，不丢数据）
+    ↓
+验证：ps + logs + curl
+```
+
+---
+
+### 第一部分：本地操作（你的 Mac）
+
+**打包新版本代码：**
+
+```bash
+cd /path/to/deepdivenote   # 替换为你本地的项目目录
+
+tar --exclude='node_modules' \
+    --exclude='.next' \
+    --exclude='.git' \
+    --exclude='.env' \
+    --exclude='*.tar.gz' \
+    -czvf /tmp/deepdivenote-v1.3.tar.gz .
+```
+
+**上传到服务器：**
+
+```bash
+scp /tmp/deepdivenote-v1.3.tar.gz root@你的服务器IP:/root/
+```
+
+---
+
+### 第二部分：服务器操作（SSH 登录后依次执行）
+
+#### 第 1 步：备份数据库 ⚠️ 必做
+
+```bash
+docker exec deepdivenote-postgres \
+  pg_dump -U deepdivenote deepdivenote \
+  > /root/backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 确认备份成功（文件大小应不为 0）
+ls -lh /root/backup_*.sql
+```
+
+#### 第 2 步：解压并同步新代码
+
+```bash
+# 解压到临时目录
+mkdir -p /tmp/deepdivenote-new
+tar -xzvf /root/deepdivenote-v1.3.tar.gz -C /tmp/deepdivenote-new/
+
+# 同步代码（自动跳过 .env 和 SSL 证书，不会覆盖）
+rsync -av \
+  --exclude='.env' \
+  --exclude='deploy/ssl' \
+  /tmp/deepdivenote-new/ \
+  /var/www/deepdivenote/
+
+# 清理临时目录
+rm -rf /tmp/deepdivenote-new/
+```
+
+#### 第 3 步：重新构建并启动服务
+
+```bash
+cd /var/www/deepdivenote
+
+# 重新构建镜像并启动（数据库容器不会被重建，数据安全）
+docker-compose -f docker-compose.prod.yml up -d --build
+```
+
+> 此步骤需要几分钟，可用 `docker-compose -f docker-compose.prod.yml logs -f` 观察进度。
+
+#### 第 4 步：执行数据库迁移（增量，不丢数据）
+
+```bash
+docker exec -it deepdivenote-app npx prisma migrate deploy
+```
+
+**正常输出示例（有新迁移）：**
+```
+All migrations have been successfully applied.
+```
+
+**正常输出示例（无结构变更）：**
+```
+Already in sync, no schema changes or pending migrations.
+```
+
+两种输出都表示数据完全安全。
+
+#### 第 5 步：验证部署结果
+
+```bash
+# 确认所有容器都是 Up 状态
+docker-compose -f docker-compose.prod.yml ps
+
+# 查看应用日志，确认无报错
+docker-compose -f docker-compose.prod.yml logs app --tail=30
+
+# 测试网站可访问（应返回 HTTP 200 或 301）
+curl -I https://你的域名
+```
+
+---
+
+### 升级失败回滚
+
+如果升级后出现问题，执行以下命令回滚：
+
+```bash
+# 1. 停止应用（保留数据库容器，数据不丢失）
+docker-compose -f docker-compose.prod.yml stop app worker
+
+# 2. 恢复数据库备份（替换文件名为实际备份文件）
+cat /root/backup_20260413_xxxxxx.sql | \
+  docker exec -i deepdivenote-postgres \
+  psql -U deepdivenote deepdivenote
+
+# 3. 重新部署旧版本代码后启动
+docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
 ---
