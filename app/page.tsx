@@ -496,8 +496,8 @@ export default function Home() {
     setGeneratingSummary(true)
     console.log('【纪要】开始生成，使用模型:', selectedModel, '模板:', selectedTemplate)
     try {
-      // 检查是否选择了用户模板（investor是系统模板，不是用户模板）
-      const isUserTemplate = selectedTemplate !== 'interview' && selectedTemplate !== 'meeting' && selectedTemplate !== 'investor'
+      // 检查是否选择了用户模板（系统模板：interview、interview-less、meeting、investor）
+      const isUserTemplate = selectedTemplate !== 'interview' && selectedTemplate !== 'interview-less' && selectedTemplate !== 'meeting' && selectedTemplate !== 'investor'
       const customPrompt = isUserTemplate
         ? userTemplates.find(t => t.id === selectedTemplate)?.content
         : undefined
@@ -1171,7 +1171,17 @@ export default function Home() {
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
                         }`}
                       >
-                        专家访谈
+                        专家访谈-逐字稿版
+                      </button>
+                      <button
+                        onClick={() => setSelectedTemplate('interview-less')}
+                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          selectedTemplate === 'interview-less'
+                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
+                        }`}
+                      >
+                        专家访谈-提炼版
                       </button>
                       <button
                         onClick={() => setSelectedTemplate('investor')}

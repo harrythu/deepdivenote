@@ -84,6 +84,18 @@ export class SummaryService {
       console.warn('【纪要服务】加载访谈纪要模板失败:', error)
     }
 
+    // 加载专家访谈-提炼版模板 (Markdown 输出)
+    try {
+      const interviewLessPath = path.join(process.cwd(), 'default_summary_less_prompt.txt')
+      if (fs.existsSync(interviewLessPath)) {
+        const prompt = fs.readFileSync(interviewLessPath, 'utf-8')
+        this.templates.set('interview-less', { prompt, needsJson: false })
+        console.log('【纪要服务】已加载专家访谈-提炼版模板')
+      }
+    } catch (error) {
+      console.warn('【纪要服务】加载专家访谈-提炼版模板失败:', error)
+    }
+
     // 加载投资人模板 (Markdown 输出)
     try {
       const investorPath = path.join(process.cwd(), 'default_investor_prompt.txt')
