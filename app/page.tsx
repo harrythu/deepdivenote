@@ -109,6 +109,7 @@ export default function Home() {
   // 模型选择相关状态
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; category: string; description: string; maxTokens: number}[]>([])
   const [selectedModel, setSelectedModel] = useState('openai/gpt-5.4-mini')
+  const [correctionModel, setCorrectionModel] = useState('openai/gpt-5.4-mini')
   const [summaryCopied, setSummaryCopied] = useState(false)
 
   // 获取当前选中模型的分类
@@ -183,6 +184,7 @@ export default function Home() {
           const defaultModel = data.data.models.find((m: any) => m.id === data.data.default)
           if (defaultModel) {
             setSelectedModel(defaultModel.id)
+            setCorrectionModel(defaultModel.id)
           }
         }
       } catch (error) {
@@ -456,7 +458,7 @@ export default function Home() {
       const res = await fetch(`/api/meetings/${meetingId}/correction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vocabulary: selectedVocabulary, mode: appMode }),
+        body: JSON.stringify({ vocabulary: selectedVocabulary, mode: appMode, model: correctionModel }),
       })
       console.log('【纠错】响应状态:', res.status)
       const data = await res.json()
@@ -468,8 +470,11 @@ export default function Home() {
     } catch (error) {
       console.error('【纠错】错误:', error)
       const errorMessage = error instanceof Error ? error.message : '纠错失败'
-      // 检查是否是内部版超时错误
-      if (appMode === 'internal' && (errorMessage === 'INTERNAL_TIMEOUT' || errorMessage.includes('timeout'))) {
+      // 检查是否是内部版超时/中断错误
+      const isInternalConnError = errorMessage === 'INTERNAL_TIMEOUT' ||
+        errorMessage.toLowerCase().includes('timeout') ||
+        errorMessage.toLowerCase().includes('terminated')
+      if (appMode === 'internal' && isInternalConnError) {
         toast.error('目前蚂蚁内部版无法工作，请检查：1、您是否处于蚂蚁内网或者开启内网VPN；2、您配置的Theta API key是否有效')
       } else {
         toast.error(errorMessage)
@@ -940,6 +945,22 @@ export default function Home() {
                         </Button>
                       )}
                     </div>
+                    <div className="flex flex-col">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                        选择模型
+                      </label>
+                      <select
+                        value={correctionModel}
+                        onChange={(e) => setCorrectionModel(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-slate-400 h-10"
+                      >
+                        {availableModels.map((model) => (
+                          <option key={model.id} value={model.id}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="flex items-end">
                       <Button
                         onClick={handleCorrection}
@@ -1017,7 +1038,7 @@ export default function Home() {
                     </h3>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="border-purple-300 text-purple-600 text-xs">
-                        {selectedModel}
+                        {availableModels.find(m => m.id === correctionModel)?.name || correctionModel}
                       </Badge>
                       <Badge
                         variant="outline"

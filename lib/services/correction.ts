@@ -5,6 +5,62 @@ import { AppMode } from '@/lib/context/mode-context'
 import { getModelConfig } from './llm-client'
 
 /**
+ * 修复 JSON 字符串值中的裸控制字符
+ * 逐字符扫描，在字符串值内部遇到裸换行/回车/制表符时，替换为合法的 JSON 转义序列
+ * 解决 MiniMax 等模型直接在 JSON 字符串值里输出原始换行符的问题
+ */
+function fixBareControlChars(json: string): string {
+  let result = ''
+  let inString = false
+  let escaped = false
+
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i]
+
+    if (escaped) {
+      // 上一个字符是反斜杠，当前字符是转义序列的一部分，直接输出
+      result += ch
+      escaped = false
+      continue
+    }
+
+    if (ch === '\\' && inString) {
+      // 反斜杠：标记下一个字符为转义
+      result += ch
+      escaped = true
+      continue
+    }
+
+    if (ch === '"') {
+      // 引号：切换字符串内/外状态
+      inString = !inString
+      result += ch
+      continue
+    }
+
+    if (inString) {
+      // 在字符串值内部，修复裸控制字符
+      if (ch === '\n') {
+        result += '\\n'
+      } else if (ch === '\r') {
+        result += '\\r'
+      } else if (ch === '\t') {
+        result += '\\t'
+      } else if (ch.charCodeAt(0) < 0x20) {
+        // 其他控制字符（0x00-0x1F）转为 \uXXXX
+        result += `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`
+      } else {
+        result += ch
+      }
+    } else {
+      result += ch
+    }
+  }
+
+  return result
+}
+
+/**
  * 从文件加载纠错提示词模板
  */
 function loadCorrectionPromptTemplate(): string {
@@ -128,6 +184,7 @@ export class CorrectionService {
         }
       }
       console.log(`【纠错响应】收到 ${chunkCount} 个 chunk, 最终文本长度: ${fullText.length} 字符`)
+      console.log('【纠错响应开头200字符】:', JSON.stringify(fullText.slice(0, 200)))
       const result = this.parseResponse(fullText, textToCorrect)
 
       if (wasTruncated) {
@@ -171,12 +228,44 @@ export class CorrectionService {
   private parseResponse(text: string, originalText: string): Omit<CorrectionResult, 'tokensUsed'> {
     console.log('【纠错原始响应长度】:', text.length, '字符')
 
+    let trimmedText = text.trim()
+
+    // 剥离 <think>...</think> 思考链（Qwen3 等思考模型会输出推理过程）
+    const thinkMatch = trimmedText.match(/^<think>[\s\S]*?<\/think>\s*/i)
+    if (thinkMatch) {
+      trimmedText = trimmedText.slice(thinkMatch[0].length).trim()
+      console.log('【纠错解析】检测到 <think> 思考链，已剥离，剩余长度:', trimmedText.length)
+    }
+
+    // 剥离 markdown 代码块包裹（DeepSeek/MiniMax 等模型会输出 ```json ... ``` 格式）
+    // 不使用 ^ $ 锚点，兼容 <think> 剥离后仍有前后空白/残留的情况
+    const codeBlockMatch = trimmedText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
+    if (codeBlockMatch) {
+      trimmedText = codeBlockMatch[1].trim()
+      console.log('【纠错解析】检测到 markdown 代码块，已剥离，剩余长度:', trimmedText.length)
+    }
+
+    // 修复三引号问题（Qwen3.5 等模型会输出 """value""" 形式的非法 JSON 字符串）
+    // 将 : """内容""" 替换为 : "内容"（内容中的双引号转义为 \"）
+    if (trimmedText.includes('"""')) {
+      trimmedText = trimmedText.replace(/"""([\s\S]*?)"""/g, (_match, inner) => {
+        // 对内容中已有的双引号转义，避免破坏 JSON 结构
+        const escaped = inner.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+        return `"${escaped}"`
+      })
+      console.log('【纠错解析】检测到三引号，已修复，剩余长度:', trimmedText.length)
+    }
+
+    // 修复 JSON 字符串值中的裸控制字符（MiniMax 等模型会在字符串值里直接输出原始换行符/回车符/制表符）
+    // 逐字符扫描：在字符串值内部遇到裸控制字符时，替换为合法的转义序列
+    trimmedText = fixBareControlChars(trimmedText)
+
     // 检查响应是否被截断（检查 JSON 是否完整）
-    const trimmedText = text.trim()
     const hasCompleteJson = trimmedText.startsWith('{') && trimmedText.endsWith('}')
 
     if (!hasCompleteJson) {
       console.error('【纠错解析失败】JSON 不完整或格式错误')
+      console.error('【原始响应开头】:', text.slice(0, 100))
       console.error('【原始响应末尾】:', text.slice(-200))
       return {
         correctedText: originalText,
@@ -194,10 +283,58 @@ export class CorrectionService {
       }
     } catch (error) {
       console.error('【纠错解析异常】:', error)
-      console.error('【原始响应末尾】:', text.slice(-200))
+      // 精确定位：打印出错位置附近内容
+      if (error instanceof SyntaxError) {
+        const posMatch = error.message.match(/position (\d+)/)
+        if (posMatch) {
+          const pos = parseInt(posMatch[1])
+          console.error(`【出错位置 ${pos} 附近】:`, JSON.stringify(trimmedText.slice(Math.max(0, pos - 80), pos + 80)))
+        }
+      }
+
+      // 降级策略：JSON.parse 失败时，用正则逐字段提取
+      // 使用能正确跳过转义引号 \" 的正则：(?:\\.|[^"]) 匹配转义字符或非引号字符
+      console.warn('【纠错解析】尝试降级提取...')
+
+      // 1. 提取 correctedText
+      let extractedCorrectedText = originalText
+      const correctedTextMatch = trimmedText.match(/"correctedText"\s*:\s*"((?:\\.|[^"])*)"/)
+      if (correctedTextMatch) {
+        try {
+          extractedCorrectedText = JSON.parse(`"${correctedTextMatch[1]}"`) || originalText
+          console.warn('【纠错解析】降级提取 correctedText 成功，长度:', extractedCorrectedText.length)
+        } catch {
+          extractedCorrectedText = correctedTextMatch[1] || originalText
+          console.warn('【纠错解析】降级提取 correctedText（原始），长度:', extractedCorrectedText.length)
+        }
+      } else {
+        console.warn('【纠错解析】降级提取 correctedText 失败，使用原文')
+      }
+
+      // 2. 逐个提取 corrections 数组中的每个对象
+      const extractedCorrections: Correction[] = []
+      const correctionItemRegex = /\{\s*"original"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"corrected"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"reason"\s*:\s*"((?:\\.|[^"])*)"\s*\}/g
+      let itemMatch
+      while ((itemMatch = correctionItemRegex.exec(trimmedText)) !== null) {
+        try {
+          extractedCorrections.push({
+            original: JSON.parse(`"${itemMatch[1]}"`),
+            corrected: JSON.parse(`"${itemMatch[2]}"`),
+            reason: JSON.parse(`"${itemMatch[3]}"`),
+          })
+        } catch {
+          extractedCorrections.push({
+            original: itemMatch[1],
+            corrected: itemMatch[2],
+            reason: itemMatch[3],
+          })
+        }
+      }
+      console.warn('【纠错解析】降级提取 corrections 数量:', extractedCorrections.length)
+
       return {
-        correctedText: originalText,
-        corrections: [],
+        correctedText: extractedCorrectedText,
+        corrections: extractedCorrections,
       }
     }
   }

@@ -89,6 +89,7 @@ export async function POST(
     const isTimeout = errorMessageLower.includes('timeout') ||
                       errorMessageLower.includes('time out') ||
                       errorMessageLower.includes('timed out') ||
+                      errorMessageLower.includes('terminated') ||
                       errorMessage.includes('AbortError') ||
                       errorMessage.includes('ECONNRESET') ||
                       errorMessage.includes('socket hang up')

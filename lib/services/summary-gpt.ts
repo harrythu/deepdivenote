@@ -185,9 +185,15 @@ export class SummaryService {
       }
       console.log(`【纪要生成】收到 ${chunkCount} 个 chunk, 最终文本长度: ${fullText.length}`)
 
+      // 剥离 <think>...</think> 思考链（MiniMax、Qwen3 等思考模型会在输出前附加推理过程）
+      const cleanedText = fullText.replace(/^<think>[\s\S]*?<\/think>\s*/i, '').trim()
+      if (cleanedText.length !== fullText.length) {
+        console.log(`【纪要生成】已剥离 <think> 思考链，剩余长度: ${cleanedText.length}`)
+      }
+
       if (!needsJsonOutput) {
         return {
-          content: fullText,
+          content: cleanedText,
           keyPoints: [],
           actionItems: [],
           participants: [],
@@ -195,7 +201,7 @@ export class SummaryService {
         }
       }
 
-      return this.parseJsonResponse(fullText)
+      return this.parseJsonResponse(cleanedText)
     } catch (error) {
       console.error('【纪要生成失败】:', error)
       throw error

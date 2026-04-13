@@ -40,6 +40,6 @@
       "maxTokens": 32000
     }
   ],
-  "default": "DeepSeek-V3.2",
-  "defaultMaxTokens":128000
+  "default": "Qwen3.5-397B-A17B",
+  "defaultMaxTokens":256000
 }
