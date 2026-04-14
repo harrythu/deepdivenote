@@ -218,6 +218,9 @@ export default function Home() {
 
     const pollMeeting = async () => {
       try {
+        // 触发服务端去千问 API 拉取最新转写结果
+        fetch('/api/meetings/poll', { method: 'POST' }).catch(() => {})
+
         const res = await fetch(`/api/meetings/${meetingId}`)
         const data = await res.json()
         if (data.success && isMounted) {
