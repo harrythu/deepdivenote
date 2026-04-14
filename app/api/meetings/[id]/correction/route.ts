@@ -60,8 +60,16 @@ export async function POST(
     })
   } catch (error) {
     console.error('纠错失败:', error)
+    const message = error instanceof Error ? error.message : '纠错失败'
+    // 识别上游模型风控拦截错误，给出友好提示
+    const isHighRisk = message.includes('high risk') || message.includes('rejected')
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '纠错失败' },
+      {
+        success: false,
+        error: isHighRisk
+          ? '所选模型拒绝了本次请求（内容安全风控），请换用其他模型重试'
+          : message,
+      },
       { status: 500 }
     )
   }

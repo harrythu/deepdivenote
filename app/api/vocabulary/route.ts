@@ -8,6 +8,7 @@ const VOCABULARY_FILES: Record<string, { name: string; file: string }> = {
   'model': { name: '大模型常用词汇', file: 'voca-model.txt' },
   'llm': { name: '大模型技术词汇', file: 'voca-llm.txt' },
   'techstrategy': { name: '技术战略常用词汇', file: 'voca-techstrategy.txt' },
+  'aiorg': { name: '大模型关键组织与人物', file: 'voca-aiorg.txt' },
 }
 
 function parseVocabularyFile(content: string): string[] {

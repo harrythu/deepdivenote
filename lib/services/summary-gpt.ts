@@ -55,6 +55,18 @@ export class SummaryService {
       console.warn('【纪要服务】加载访谈纪要模板失败:', error)
     }
 
+    // 加载访谈纪要精炼版模板 (Markdown 输出)
+    try {
+      const interviewLessPath = path.join(process.cwd(), 'default_summary_less_prompt.txt')
+      if (fs.existsSync(interviewLessPath)) {
+        const prompt = fs.readFileSync(interviewLessPath, 'utf-8')
+        this.templates.set('interview-less', { prompt, needsJson: false })
+        console.log('【纪要服务】已加载访谈纪要精炼版模板')
+      }
+    } catch (error) {
+      console.warn('【纪要服务】加载访谈纪要精炼版模板失败:', error)
+    }
+
     // 加载投资人模板 (Markdown 输出)
     try {
       const investorPath = path.join(process.cwd(), 'default_investor_prompt.txt')
@@ -76,7 +88,9 @@ export class SummaryService {
 
     for (const [id] of this.templates) {
       if (id === 'interview') {
-        result.push({ id, name: '访谈纪要模板', isCustom: false })
+        result.push({ id, name: '访谈纪要模板（逐字稿）', isCustom: false })
+      } else if (id === 'interview-less') {
+        result.push({ id, name: '访谈纪要模板（精炼版）', isCustom: false })
       } else if (id === 'investor') {
         result.push({ id, name: '投资人模板', isCustom: false })
       } else {

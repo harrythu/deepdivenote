@@ -107,13 +107,13 @@ export default function Home() {
   // 模型选择相关状态
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; category: string; description: string; maxTokens: number}[]>([])
   const [selectedModel, setSelectedModel] = useState('openai/gpt-5.4-mini')
-  const [modelMessage, setModelMessage] = useState('')
+  const [selectedCorrectionModel, setSelectedCorrectionModel] = useState('openai/gpt-5.4-mini')
   const [summaryCopied, setSummaryCopied] = useState(false)
 
   // 获取当前选中模型的分类
   const getSelectedModelCategory = () => {
     const model = availableModels.find(m => `openai/${m.id}` === selectedModel || m.id === selectedModel)
-    return model?.category || 'budget'
+    return model?.category || 'closed-source'
   }
 
   // 加载模板内容
@@ -179,8 +179,6 @@ export default function Home() {
           const defaultModel = data.data.models.find((m: any) => m.id === data.data.default)
           if (defaultModel) {
             setSelectedModel(defaultModel.id)
-            // 设置默认提示语
-            setModelMessage(defaultModel.category === 'flagship' ? '完蛋，你要让我破产' : '很好，你很有节约意识')
           }
         }
       } catch (error) {
@@ -190,14 +188,9 @@ export default function Home() {
     loadModels()
   }, [])
 
-  // 模型变化时更新提示语
+  // 模型变化
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId)
-    const model = availableModels.find(m => m.id === modelId)
-    if (model) {
-      // 旗舰模型：完蛋，你要让我破产；性价比模型：很好，你很有节约意识
-      setModelMessage(model.category === 'flagship' ? '完蛋，你要让我破产' : '很好，你很有节约意识')
-    }
   }
 
   // 复制纪要内容到剪贴板
@@ -459,7 +452,11 @@ export default function Home() {
       const res = await fetch(`/api/meetings/${meetingId}/correction`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vocabulary: selectedVocabulary }),
+        body: JSON.stringify({
+            vocabulary: selectedVocabulary,
+            model: selectedCorrectionModel,
+            maxTokens: availableModels.find(m => m.id === selectedCorrectionModel)?.maxTokens || 128000,
+          }),
       })
       console.log('【纠错】响应状态:', res.status)
       const data = await res.json()
@@ -489,7 +486,7 @@ export default function Home() {
     console.log('【纪要】开始生成，使用模型:', selectedModel, '模板:', selectedTemplate)
     try {
       // 检查是否选择了用户模板（investor是系统模板，不是用户模板）
-      const isUserTemplate = selectedTemplate !== 'interview' && selectedTemplate !== 'meeting' && selectedTemplate !== 'investor'
+      const isUserTemplate = selectedTemplate !== 'interview' && selectedTemplate !== 'interview-less' && selectedTemplate !== 'investor'
       const customPrompt = isUserTemplate
         ? userTemplates.find(t => t.id === selectedTemplate)?.content
         : undefined
@@ -916,6 +913,31 @@ export default function Home() {
                         </Button>
                       )}
                     </div>
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        选择模型
+                      </label>
+                      <select
+                        value={selectedCorrectionModel}
+                        onChange={(e) => setSelectedCorrectionModel(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      >
+                        <optgroup label="闭源模型">
+                          {availableModels.filter(m => m.category === 'closed-source').map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="开源模型">
+                          {availableModels.filter(m => m.category === 'open-source').map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </select>
+                    </div>
                     <div className="flex items-end">
                       <Button
                         onClick={handleCorrection}
@@ -992,9 +1014,6 @@ export default function Home() {
                       纠错后文字
                     </h3>
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="border-purple-300 text-purple-600 text-xs">
-                        gpt-5.4-mini
-                      </Badge>
                       <Badge
                         variant="outline"
                         className={`border-slate-300 dark:border-slate-700 ${correctedText ? 'text-emerald-600 border-emerald-300' : ''}`}
@@ -1091,15 +1110,15 @@ export default function Home() {
                           onChange={(e) => handleModelChange(e.target.value)}
                           className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
                         >
-                          <optgroup label="💰 性价比模型">
-                            {availableModels.filter(m => m.category === 'budget').map((model) => (
+                          <optgroup label="闭源模型">
+                            {availableModels.filter(m => m.category === 'closed-source').map((model) => (
                               <option key={model.id} value={model.id}>
                                 {model.name}
                               </option>
                             ))}
                           </optgroup>
-                          <optgroup label="🚀 旗舰模型">
-                            {availableModels.filter(m => m.category === 'flagship').map((model) => (
+                          <optgroup label="开源模型">
+                            {availableModels.filter(m => m.category === 'open-source').map((model) => (
                               <option key={model.id} value={model.id}>
                                 {model.name}
                               </option>
@@ -1107,11 +1126,6 @@ export default function Home() {
                           </optgroup>
                         </select>
                       </div>
-                      {modelMessage && (
-                        <span className={`text-sm ${selectedModel.includes('flagship') ? 'text-red-500' : 'text-emerald-500'}`}>
-                          {modelMessage}
-                        </span>
-                      )}
                     </div>
                   </div>
 
@@ -1140,7 +1154,17 @@ export default function Home() {
                             : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
                         }`}
                       >
-                        专家访谈
+                        专家访谈-逐字稿
+                      </button>
+                      <button
+                        onClick={() => setSelectedTemplate('interview-less')}
+                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                          selectedTemplate === 'interview-less'
+                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
+                        }`}
+                      >
+                        专家访谈-精炼版
                       </button>
                       <button
                         onClick={() => setSelectedTemplate('investor')}

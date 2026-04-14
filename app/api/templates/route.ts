@@ -23,6 +23,20 @@ export async function GET() {
       console.error('加载访谈纪要模板失败:', error)
     }
 
+    // 加载访谈纪要精炼版模板
+    try {
+      const interviewLessPath = path.join(process.cwd(), 'default_summary_less_prompt.txt')
+      if (fs.existsSync(interviewLessPath)) {
+        const content = fs.readFileSync(interviewLessPath, 'utf-8')
+        templates['interview-less'] = {
+          name: '访谈纪要模板（精炼版）',
+          content: content
+        }
+      }
+    } catch (error) {
+      console.error('加载访谈纪要精炼版模板失败:', error)
+    }
+
     // 加载投资人模板
     try {
       const investorPath = path.join(process.cwd(), 'default_investor_prompt.txt')

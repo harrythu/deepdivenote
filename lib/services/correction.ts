@@ -137,8 +137,16 @@ export class CorrectionService {
   private parseResponse(text: string, originalText: string): Omit<CorrectionResult, 'tokensUsed'> {
     console.log('【纠错原始响应长度】:', text.length, '字符')
 
+    let trimmedText = text.trim()
+
+    // 剥离 Markdown 代码块包裹（部分模型如 DeepSeek 会返回 ```json ... ``` 格式）
+    const codeBlockMatch = trimmedText.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)
+    if (codeBlockMatch) {
+      trimmedText = codeBlockMatch[1].trim()
+      console.log('【纠错解析】检测到 Markdown 代码块，已剥离')
+    }
+
     // 检查响应是否被截断（检查 JSON 是否完整）
-    const trimmedText = text.trim()
     const hasCompleteJson = trimmedText.startsWith('{') && trimmedText.endsWith('}')
 
     if (!hasCompleteJson) {

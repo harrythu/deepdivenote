@@ -304,8 +304,8 @@ export default function TemplatesPage() {
   }
 
   const contentLength = (generatedTemplate || content).length
-  const budgetModels = models.filter(m => m.category === 'budget')
-  const flagshipModels = models.filter(m => m.category === 'flagship')
+  const closedSourceModels = models.filter(m => m.category === 'closed-source')
+  const openSourceModels = models.filter(m => m.category === 'open-source')
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12">
@@ -441,9 +441,9 @@ export default function TemplatesPage() {
                       选择大模型
                     </label>
                     <div className="space-y-2">
-                      <div className="text-xs text-slate-500 mb-2">经济型模型</div>
+                      <div className="text-xs text-slate-500 mb-2">闭源模型</div>
                       <div className="grid grid-cols-2 gap-2">
-                        {budgetModels.map(model => (
+                        {closedSourceModels.map(model => (
                           <button
                             key={model.id}
                             onClick={() => setSelectedModel(model.id)}
@@ -460,9 +460,9 @@ export default function TemplatesPage() {
                           </button>
                         ))}
                       </div>
-                      <div className="text-xs text-slate-500 mb-2 mt-4">旗舰型模型</div>
+                      <div className="text-xs text-slate-500 mb-2 mt-4">开源模型</div>
                       <div className="grid grid-cols-2 gap-2">
-                        {flagshipModels.map(model => (
+                        {openSourceModels.map(model => (
                           <button
                             key={model.id}
                             onClick={() => setSelectedModel(model.id)}

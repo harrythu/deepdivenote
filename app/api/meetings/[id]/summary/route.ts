@@ -141,8 +141,15 @@ export async function POST(
     })
   } catch (error) {
     console.error('生成纪要失败:', error)
+    const message = error instanceof Error ? error.message : '生成纪要失败'
+    const isHighRisk = message.includes('high risk') || message.includes('rejected')
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '生成纪要失败' },
+      {
+        success: false,
+        error: isHighRisk
+          ? '所选模型拒绝了本次请求（内容安全风控），请换用其他模型重试'
+          : message,
+      },
       { status: 500 }
     )
   }
