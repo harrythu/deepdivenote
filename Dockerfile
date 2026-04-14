@@ -32,6 +32,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+RUN npm install -g prisma@6.19.3
 COPY --from=builder /app/scripts ./scripts
 
 # 复制系统词汇表和模板文件
