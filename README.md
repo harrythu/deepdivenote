@@ -295,8 +295,25 @@ docker-compose -f docker-compose.prod.yml up -d --build
 
 #### 第 4 步：执行数据库迁移（增量，不丢数据）
 
+> **注意**：容器内 prisma 需要指定版本号调用，不能直接用 `npx prisma`（会拉取最新 7.x 不兼容）。
+
+**4a. 首次从 db push 升级到 migrate（仅第一次需要）**
+
+如果之前的版本是用 `prisma db push` 部署的（数据库没有 `_prisma_migrations` 表），需要先做 baseline，将已有迁移标记为"已应用"：
+
 ```bash
-docker exec -it deepdivenote-app npx prisma migrate deploy
+docker exec -it deepdivenote-app npx prisma@6.19.3 migrate resolve --applied 20260331143845_init
+docker exec -it deepdivenote-app npx prisma@6.19.3 migrate resolve --applied 20260403092158_add_user_system
+docker exec -it deepdivenote-app npx prisma@6.19.3 migrate resolve --applied 20260403151803_add_meeting_history
+docker exec -it deepdivenote-app npx prisma@6.19.3 migrate resolve --applied 20260411114632_init
+```
+
+> 这些命令只在 `_prisma_migrations` 表中插入记录，**不会修改任何表结构或数据**。
+
+**4b. 执行增量迁移**
+
+```bash
+docker exec -it deepdivenote-app npx prisma@6.19.3 migrate deploy
 ```
 
 **正常输出示例（有新迁移）：**
