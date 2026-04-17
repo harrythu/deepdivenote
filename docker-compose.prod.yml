@@ -19,6 +19,7 @@ services:
       ALIYUN_OSS_REGION: ${ALIYUN_OSS_REGION}
       ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET}
       ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     depends_on:
       postgres:
         condition: service_healthy
