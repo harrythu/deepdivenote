@@ -20,6 +20,8 @@ services:
       ALIYUN_OSS_BUCKET: ${ALIYUN_OSS_BUCKET}
       ALIYUN_OSS_ENDPOINT: ${ALIYUN_OSS_ENDPOINT}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ALIYUN_DM_FROM_ADDRESS: ${ALIYUN_DM_FROM_ADDRESS}
+      APP_URL: ${APP_URL}
     depends_on:
       postgres:
         condition: service_healthy

@@ -73,12 +73,17 @@ export function LoginForm() {
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? '登录中...' : '登录'}
           </Button>
-          <p className="text-center text-sm text-slate-500">
-            还没有账户？{' '}
-            <Link href="/register" className="text-blue-600 hover:underline">
-              注册
+          <div className="flex items-center justify-between text-sm text-slate-500">
+            <span>
+              还没有账户？{' '}
+              <Link href="/register" className="text-blue-600 hover:underline">
+                注册
+              </Link>
+            </span>
+            <Link href="/forgot-password" className="text-blue-600 hover:underline">
+              忘记密码？
             </Link>
-          </p>
+          </div>
         </form>
       </CardContent>
     </Card>

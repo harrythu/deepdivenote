@@ -11,6 +11,7 @@
     "worker": "tsx scripts/start-worker.ts"
   },
   "dependencies": {
+    "@alicloud/dm20151123": "^1.9.2",
     "@alicloud/dysmsapi20170525": "^4.5.0",
     "@alicloud/openapi-client": "^0.4.15",
     "@anthropic-ai/sdk": "^0.80.0",

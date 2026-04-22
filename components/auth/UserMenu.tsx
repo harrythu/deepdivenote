@@ -1,7 +1,7 @@
 'use client'
 
 import { useAuth } from '@/hooks/useAuth'
-import { User, LogOut } from 'lucide-react'
+import { User, LogOut, KeyRound } from 'lucide-react'
 
 export function UserMenu() {
   const { user, isLoading, isAuthenticated, logout } = useAuth()
@@ -49,6 +49,13 @@ export function UserMenu() {
           {user?.name || user?.email?.split('@')[0]}
         </span>
       </div>
+      <a
+        href="/settings/password"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors"
+      >
+        <KeyRound className="w-4 h-4" />
+        <span className="hidden sm:inline">修改密码</span>
+      </a>
       <button
         onClick={handleLogout}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
