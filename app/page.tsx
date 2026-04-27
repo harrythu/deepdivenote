@@ -569,6 +569,12 @@ export default function Home() {
             >
               历史记录
             </a>
+            <a
+              href="/live"
+              className="text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-300 transition-colors"
+            >
+              Live Conference
+            </a>
           </div>
 
           {/* 右侧用户菜单 */}

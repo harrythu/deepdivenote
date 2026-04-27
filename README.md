@@ -122,6 +122,101 @@ deepdivenote/
 └── voca-aiorg.txt                # 系统词汇：大模型关键组织与人物
 ```
 
+## Live Conference (v2)
+
+Real-time conference assistant integrated into DeepDiveNote at `/live`. Captures microphone audio, transcribes locally via GLM-ASR-Nano, and provides an AI copilot powered by a local LLM — all on-device, zero cloud dependency.
+
+### Architecture
+
+```
+DeepDiveNote (/live)  ←──Socket.IO──→  conference-ai backend (port 3456)
+                                            │
+                                     ┌──────┼──────┐
+                                     ▼      ▼      ▼
+                                  ffmpeg  GLM-ASR  Ollama
+                                  (mic)   (STT)   (LLM)
+```
+
+The `/live` page is a Next.js client component that connects to a separate conference-ai backend via Socket.IO. The backend handles audio capture, transcription, and LLM interaction. When a session ends, the transcript can be exported into DeepDive for cloud-grade summarization and permanent storage.
+
+### Prerequisites (Live Conference only)
+
+| Dependency | Purpose | Install |
+|------------|---------|---------|
+| **ffmpeg** | Microphone audio capture | `brew install ffmpeg` |
+| **Ollama** | Local LLM (analysis engine) | [ollama.com](https://ollama.com), then `ollama pull gemma4:e4b` |
+| **Python 3.9+** | GLM-ASR server runtime | System Python or pyenv |
+| **mlx-audio** | Local speech-to-text (Apple Silicon) | `pip install mlx-audio` |
+| **fastapi + uvicorn** | ASR server framework | `pip install fastapi uvicorn soundfile numpy` |
+| **Node.js 18+** | Conference-ai backend | Already required by DeepDiveNote |
+
+### Setup
+
+```bash
+# 1. Clone the conference-ai backend (sibling directory)
+git clone https://github.com/zhentianashen-tech/conference-ai.git ../conference-assistant
+cd ../conference-assistant
+npm install
+
+# 2. Configure the backend
+cp .env.example .env
+# Edit .env — set your LLM backend:
+#   Option A (local): MOONSHOT_API_KEY=ollama / ANALYSIS_MODEL=gemma4:e4b / ANALYSIS_BASE_URL=http://localhost:11434/v1
+#   Option B (cloud): MOONSHOT_API_KEY=sk-your-key / ANALYSIS_MODEL=kimi-k2.5
+
+# 3. Install ASR dependencies
+pip install mlx-audio fastapi uvicorn soundfile numpy
+```
+
+### Running
+
+```bash
+# Terminal 1: GLM-ASR server (local speech-to-text)
+HF_HUB_OFFLINE=1 python3 conference-assistant/scripts/glm-asr-server.py
+
+# Terminal 2: Conference-ai backend
+cd conference-assistant && npm start
+
+# Terminal 3: DeepDiveNote
+cd deepdivenote && npm run dev
+```
+
+Open **http://localhost:3000/live**
+
+### Configuration
+
+The conference-ai backend is configured via `conference-assistant/.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MOONSHOT_API_KEY` | — | LLM API key (set to `ollama` for local) |
+| `ANALYSIS_MODEL` | `kimi-k2.5` | LLM model (`gemma4:e4b` for Ollama) |
+| `ANALYSIS_BASE_URL` | `https://api.moonshot.cn/v1` | LLM endpoint (`http://localhost:11434/v1` for Ollama) |
+| `ASR_PROVIDER` | `glm-local` | ASR backend: `glm-local` / `openai` / `qwen` |
+| `GLM_ASR_MODEL` | `mlx-community/GLM-ASR-Nano-2512-4bit` | Local ASR model (Apple Silicon, ~300MB) |
+| `GLM_ASR_PORT` | `8765` | ASR server port |
+| `AUDIO_DEVICE` | `:0` | Microphone device (`npm run devices` to list) |
+| `UI_PORT` | `3456` | Conference-ai web UI / Socket.IO port |
+
+DeepDiveNote connects to the conference-ai backend via:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_CONFERENCE_WS_URL` | `http://localhost:3456` | Conference-ai Socket.IO endpoint |
+
+### LLM Backend Options
+
+| Backend | Local? | Config |
+|---------|--------|--------|
+| **Ollama** | Yes | `ANALYSIS_BASE_URL=http://localhost:11434/v1`, `MOONSHOT_API_KEY=ollama`, `ANALYSIS_MODEL=gemma4:e4b` |
+| **Kimi/Moonshot** | No | `ANALYSIS_BASE_URL=https://api.moonshot.cn/v1`, `MOONSHOT_API_KEY=sk-...`, `ANALYSIS_MODEL=kimi-k2.5` |
+| **LM Studio** | Yes | `ANALYSIS_BASE_URL=http://localhost:1234/v1`, `MOONSHOT_API_KEY=lm-studio` |
+| **OpenRouter** | No | `ANALYSIS_BASE_URL=https://openrouter.ai/api/v1`, `MOONSHOT_API_KEY=sk-or-...` |
+
+### Export to DeepDive
+
+When a live session ends, click **Export to DeepDive** to send the transcript to DeepDiveNote's cloud pipeline for summarization (Claude/GPT), vocabulary correction, and permanent storage. The transcript is posted to `/api/text-upload` and appears in the user's history.
+
 ## 许可证
 
 MIT
