@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import * as fs from 'fs'
 import * as path from 'path'
+import { RichSegment, SpeakerMap } from '@/lib/types'
 
 export interface SummaryOptions {
   template?: string  // 模板ID或自定义提示词
@@ -234,4 +235,50 @@ export function getSummaryService(): SummaryService {
     summaryServiceInstance = new SummaryService()
   }
   return summaryServiceInstance
+}
+
+/**
+ * 将 RichSegment[] 格式化为带发言人名称和时间戳的对话文本
+ * 用于区分发言人的纪要生成
+ *
+ * 输出格式：
+ * [00:01] 张三：我看一下，理解了。
+ * [00:05] 李四：好的，然后还有一块...
+ */
+export function formatSegmentsWithSpeakers(
+  segments: RichSegment[],
+  speakerMap: SpeakerMap = {}
+): string {
+  return segments
+    .map((seg) => {
+      const displayText = seg.corrected_text ?? seg.original_text
+      const speakerName =
+        seg.speaker_id !== undefined
+          ? (speakerMap[String(seg.speaker_id)] ?? `发言人${seg.speaker_id}`)
+          : null
+      const timestamp = formatMs(seg.begin_time)
+      if (speakerName) {
+        return `[${timestamp}] ${speakerName}：${displayText}`
+      }
+      return `[${timestamp}] ${displayText}`
+    })
+    .join('\n')
+}
+
+/**
+ * 将 RichSegment[] 格式化为纯文本（不区分发言人）
+ */
+export function formatSegmentsAsPlainText(segments: RichSegment[]): string {
+  return segments.map((seg) => seg.corrected_text ?? seg.original_text).join('')
+}
+
+function formatMs(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }

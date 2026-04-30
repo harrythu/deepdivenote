@@ -5,7 +5,23 @@
 
 import { prisma } from '@/lib/db/prisma'
 import { MeetingStatus } from '@prisma/client'
-import { createQwenASRService } from './qwen-asr'
+import { createQwenASRService, QwenTranscriptionResult } from './qwen-asr'
+import { RichSegment, QwenSegment } from '@/lib/types'
+
+/**
+ * 将 Fun-ASR 返回的 QwenSegment[] 转换为 RichSegment[] 存储格式
+ */
+function toRichSegments(rawSegments: QwenSegment[]): RichSegment[] {
+  return rawSegments.map((seg) => ({
+    begin_time: seg.begin_time ?? 0,
+    end_time: seg.end_time ?? 0,
+    speaker_id: seg.speaker_id !== undefined ? Number(seg.speaker_id) : undefined,
+    channel_id: seg.channel_id,
+    words: seg.words,
+    original_text: seg.text ?? '',
+    corrected_text: undefined,
+  }))
+}
 
 export class TranscriptionWorker {
   private qwenService = createQwenASRService()
@@ -117,15 +133,20 @@ export class TranscriptionWorker {
       // 解析转写结果
       const transcriptionResult = await this.qwenService.parseTranscriptionResult(result)
 
+      // 将 QwenSegment[] 转为 RichSegment[] 存储（含 original_text，corrected_text 为 undefined）
+      const richSegments = transcriptionResult.segments.length > 0
+        ? toRichSegments(transcriptionResult.segments)
+        : []
+
       // 保存转写结果到数据库
       await prisma.transcription.create({
         data: {
           meetingId: meeting.id,
           fullText: transcriptionResult.text,
-          segments: transcriptionResult.segments as any,
+          segments: richSegments as any,
           language: transcriptionResult.language,
           wordCount: transcriptionResult.text.length,
-          model: 'qwen3-asr-flash-filetrans',
+          model: 'fun-asr',
         },
       })
 
@@ -135,7 +156,7 @@ export class TranscriptionWorker {
         data: {
           status: MeetingStatus.COMPLETED,
           progress: 100,
-          duration: result.usage?.seconds,
+          duration: result.usage?.duration,
           errorMessage: null, // 清除任务ID
         },
       })

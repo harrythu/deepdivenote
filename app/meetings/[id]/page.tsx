@@ -6,10 +6,19 @@ import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { Copy, Check, ArrowLeft } from 'lucide-react'
+import { Copy, Check, ArrowLeft, User } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useRouter } from 'next/navigation'
+
+interface QwenSegment {
+  text: string
+  begin_time: number   // 毫秒
+  end_time: number     // 毫秒
+  speaker_id?: string | number
+  words?: Array<{ text: string; begin_time: number; end_time: number }>
+  channel_id?: number
+}
 
 interface MeetingData {
   id: string
@@ -24,6 +33,7 @@ interface MeetingData {
   transcription: {
     id: string
     fullText: string
+    segments: QwenSegment[]
   } | null
   summary: {
     id: string
@@ -132,6 +142,37 @@ export default function MeetingPage({
       minute: '2-digit',
       second: '2-digit',
     }).format(new Date(dateStr))
+  }
+
+  /**
+   * 将毫秒转换为 mm:ss 或 hh:mm:ss 格式
+   */
+  const formatTimestamp = (ms: number): string => {
+    const totalSeconds = Math.floor(ms / 1000)
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+    if (hours > 0) {
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+
+  /**
+   * 根据 speaker_id 生成固定颜色
+   */
+  const getSpeakerColor = (speakerId: string | number | undefined): string => {
+    const colors = [
+      'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+      'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+      'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
+      'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+      'bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300',
+      'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+    ]
+    if (speakerId === undefined || speakerId === null) return colors[0]
+    const idx = Number(speakerId) % colors.length
+    return colors[idx]
   }
 
   if (loading) {
@@ -278,6 +319,70 @@ export default function MeetingPage({
                     </p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* 转写文字稿 */}
+          {meeting.transcription && (
+            <Card className="mb-6">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                    转写文字稿
+                    <Badge variant="outline" className="border-slate-300 dark:border-slate-700 text-xs">
+                      {meeting.transcription.fullText.length} 字
+                    </Badge>
+                  </CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleCopyText(meeting.transcription!.fullText)}
+                  >
+                    {copied ? (
+                      <Check className="w-4 h-4 mr-1 text-green-600" />
+                    ) : (
+                      <Copy className="w-4 h-4 mr-1" />
+                    )}
+                    {copied ? '已复制' : '复制'}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* 有 segments 时按说话人+时间戳展示 */}
+                {meeting.transcription.segments && meeting.transcription.segments.length > 0 ? (
+                  <div className="space-y-3">
+                    {meeting.transcription.segments.map((seg, idx) => {
+                      const hasSpeaker = seg.speaker_id !== undefined && seg.speaker_id !== null
+                      const speakerLabel = hasSpeaker ? `发言人 ${seg.speaker_id}` : null
+                      const colorClass = getSpeakerColor(seg.speaker_id)
+                      return (
+                        <div key={idx} className="flex gap-3 items-start">
+                          {/* 时间戳 */}
+                          <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 w-14 text-right">
+                            {formatTimestamp(seg.begin_time)}
+                          </span>
+                          {/* 说话人标签：仅在有 speaker_id 时显示 */}
+                          {hasSpeaker && (
+                            <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full mt-0.5 ${colorClass}`}>
+                              <User className="w-3 h-3" />
+                              {speakerLabel}
+                            </span>
+                          )}
+                          {/* 文本内容 */}
+                          <p className="text-sm text-slate-800 dark:text-slate-200 leading-relaxed flex-1">
+                            {seg.text}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  /* 无 segments 时降级为纯文本展示 */
+                  <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
+                    {meeting.transcription.fullText}
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}

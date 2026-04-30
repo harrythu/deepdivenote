@@ -1,11 +1,22 @@
 import {
   ITranscriptionService,
   TranscriptionOptions,
-  TranscriptionResult,
+  QwenSegment,
 } from '@/lib/types'
 
 /**
- * 千问ASR任务状态
+ * Fun-ASR parseTranscriptionResult 的返回类型
+ * 使用 QwenSegment（原始 ASR 格式），由 transcription-worker 转为 RichSegment 存储
+ */
+export interface QwenTranscriptionResult {
+  text: string
+  segments: QwenSegment[]
+  language: string
+  duration?: number
+}
+
+/**
+ * Fun-ASR 任务状态
  */
 export enum QwenTaskStatus {
   PENDING = 'PENDING',
@@ -16,7 +27,7 @@ export enum QwenTaskStatus {
 }
 
 /**
- * 千问ASR任务响应
+ * Fun-ASR 任务响应（与 paraformer/qwen-asr 共用同一套 DashScope 任务接口）
  */
 export interface QwenTaskResponse {
   output: {
@@ -25,31 +36,39 @@ export interface QwenTaskResponse {
     submit_time?: string
     scheduled_time?: string
     end_time?: string
-    url?: string // 转写结果URL（旧格式）
-    result?: {
-      transcription_url?: string // 转写结果JSON文件URL
-    }
+    // Fun-ASR 结果通过 results 数组返回（每个文件一条）
     results?: Array<{
+      file_url?: string
       transcription_url?: string
       subtask_status?: string
-      transcription?: string
+      code?: string
+      message?: string
     }>
+    task_metrics?: {
+      TOTAL: number
+      SUCCEEDED: number
+      FAILED: number
+    }
   }
   usage?: {
     duration?: number
-    seconds?: number // 实际处理秒数
   }
   request_id: string
 }
 
 /**
- * 千问3-ASR-Flash-Filetrans 服务
- * 支持最长12小时录音的异步转写
- * 要求输入为公网可访问的音频文件URL
+ * Fun-ASR 录音文件识别服务
  *
- * 官方API文档参考：
+ * 官方文档：
  * - 提交任务: POST https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription
- * - 查询任务: GET https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}
+ * - 查询任务: POST https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}
+ *
+ * 与 qwen3-asr-flash-filetrans 的主要差异：
+ * - model 名称：fun-asr
+ * - input 字段：file_urls（数组），而非 file_url（字符串）
+ * - 查询接口：POST（而非 GET）
+ * - 结果路径：output.results[0].transcription_url
+ * - 明确支持 diarization_enabled（单声道音频）
  */
 export class QwenASRService implements ITranscriptionService {
   private apiKey: string
@@ -58,7 +77,6 @@ export class QwenASRService implements ITranscriptionService {
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.QWEN_API_KEY || ''
-    // 正确的API端点
     this.submitUrl = 'https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription'
     this.queryUrlBase = 'https://dashscope.aliyuncs.com/api/v1/tasks/'
 
@@ -68,27 +86,28 @@ export class QwenASRService implements ITranscriptionService {
   }
 
   /**
-   * 提交转写任务
-   * @param audioUrl 公网可访问的音频文件URL
+   * 提交 Fun-ASR 转写任务
+   * @param audioUrl 公网可访问的音频文件 URL
    * @param options 转写选项
-   * @returns 任务ID
+   * @returns 任务 ID
    */
   async submitTask(
     audioUrl: string,
     options?: TranscriptionOptions
   ): Promise<string> {
     try {
-      console.log('提交千问ASR任务，音频URL:', audioUrl)
+      console.log('提交 Fun-ASR 任务，音频URL:', audioUrl)
 
       const payload = {
-        model: 'qwen3-asr-flash-filetrans',
+        model: 'fun-asr',
         input: {
-          file_url: audioUrl, // 注意：是 file_url 不是 file_urls
+          // Fun-ASR 使用 file_urls 数组（与 qwen3-asr 的 file_url 字符串不同）
+          file_urls: [audioUrl],
         },
         parameters: {
           channel_id: [0],
-          language: options?.language,
-          enable_itn: false,
+          diarization_enabled: true, // 启用说话人分离（仅单声道有效）
+          ...(options?.language ? { language_hints: [options.language] } : {}),
         },
       }
 
@@ -99,46 +118,48 @@ export class QwenASRService implements ITranscriptionService {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
-          'X-DashScope-Async': 'enable', // 重要：启用异步模式
+          'X-DashScope-Async': 'enable',
         },
         body: JSON.stringify(payload),
       })
 
       const responseText = await response.text()
-      console.log('千问API响应状态:', response.status)
-      console.log('千问API响应内容:', responseText)
+      console.log('Fun-ASR API 响应状态:', response.status)
+      console.log('Fun-ASR API 响应内容:', responseText)
 
       if (!response.ok) {
-        throw new Error(`千问API请求失败: ${response.status} - ${responseText}`)
+        throw new Error(`Fun-ASR API 请求失败: ${response.status} - ${responseText}`)
       }
 
       const data: QwenTaskResponse = JSON.parse(responseText)
 
       if (!data.output?.task_id) {
-        console.error('千问API返回数据:', data)
-        throw new Error('千问API返回的任务ID为空')
+        console.error('Fun-ASR API 返回数据:', data)
+        throw new Error('Fun-ASR API 返回的任务ID为空')
       }
 
-      console.log('千问任务提交成功，task_id:', data.output.task_id)
+      console.log('Fun-ASR 任务提交成功，task_id:', data.output.task_id)
       return data.output.task_id
     } catch (error) {
-      console.error('提交千问转写任务失败:', error)
+      console.error('提交 Fun-ASR 转写任务失败:', error)
       throw new Error(`提交转写任务失败: ${error instanceof Error ? error.message : '未知错误'}`)
     }
   }
 
   /**
    * 查询任务状态
-   * @param taskId 任务ID
+   * 注意：Fun-ASR 查询接口使用 POST 方法（与 qwen3-asr 的 GET 不同）
+   * @param taskId 任务 ID
    * @returns 任务状态和结果
    */
   async getTaskStatus(taskId: string): Promise<QwenTaskResponse> {
     try {
       const queryUrl = `${this.queryUrlBase}${taskId}`
-      console.log('查询任务状态，URL:', queryUrl)
+      console.log('查询 Fun-ASR 任务状态，URL:', queryUrl)
 
+      // Fun-ASR 查询接口使用 POST（官方文档明确说明）
       const response = await fetch(queryUrl, {
-        method: 'GET',
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.apiKey}`,
         },
@@ -155,26 +176,21 @@ export class QwenASRService implements ITranscriptionService {
       const data: QwenTaskResponse = JSON.parse(responseText)
       return data
     } catch (error) {
-      console.error('查询千问任务状态失败:', error)
+      console.error('查询 Fun-ASR 任务状态失败:', error)
       throw new Error(`查询任务状态失败: ${error instanceof Error ? error.message : '未知错误'}`)
     }
   }
 
   /**
    * 轮询等待任务完成
-   * @param taskId 任务ID
-   * @param maxAttempts 最大轮询次数（默认360次，约12小时）
-   * @param intervalMs 轮询间隔（毫秒，默认2秒，与官方示例一致）
-   * @returns 转写结果
    */
   async pollTaskCompletion(
     taskId: string,
-    maxAttempts: number = 360, // 12小时音频，保守估计需要2-3小时处理
-    intervalMs: number = 2000 // 每2秒查询一次（官方示例）
+    maxAttempts: number = 360,
+    intervalMs: number = 2000
   ): Promise<QwenTaskResponse> {
     let attempts = 0
-
-    console.log(`开始轮询任务 ${taskId}，最大尝试次数: ${maxAttempts}`)
+    console.log(`开始轮询 Fun-ASR 任务 ${taskId}，最大尝试次数: ${maxAttempts}`)
 
     while (attempts < maxAttempts) {
       const result = await this.getTaskStatus(taskId)
@@ -183,16 +199,15 @@ export class QwenASRService implements ITranscriptionService {
       console.log(`轮询第 ${attempts + 1} 次，状态: ${status}`)
 
       if (status === 'SUCCEEDED') {
-        console.log('任务成功完成')
+        console.log('Fun-ASR 任务成功完成')
         return result
       }
 
       if (status === 'FAILED' || status === 'UNKNOWN') {
-        console.error('任务失败或状态未知:', result)
+        console.error('Fun-ASR 任务失败:', result)
         throw new Error(`转写任务失败，状态: ${status}`)
       }
 
-      // 等待后重试
       await new Promise((resolve) => setTimeout(resolve, intervalMs))
       attempts++
     }
@@ -201,43 +216,42 @@ export class QwenASRService implements ITranscriptionService {
   }
 
   /**
-   * 实现 ITranscriptionService 接口（兼容性方法）
-   * 注意：此方法不适用于千问ASR，因为它需要URL而不是File对象
-   * 实际使用时应该使用 submitTask 方法
+   * 实现 ITranscriptionService 接口（兼容性方法，不直接使用）
    */
   async transcribe(
     audioFile: File | Buffer,
     options?: TranscriptionOptions
-  ): Promise<TranscriptionResult> {
+  ): Promise<never> {
     throw new Error(
-      '千问ASR不支持直接上传文件，请使用 submitTask 方法并传入公网URL'
+      'Fun-ASR 不支持直接上传文件，请使用 submitTask 方法并传入公网 URL'
     )
   }
 
   /**
-   * 从URL下载转写结果
-   * @param url 转写结果URL
-   * @returns 转写文本
+   * 从 URL 下载转写结果 JSON
    */
   async downloadTranscriptionResult(url: string): Promise<any> {
     try {
-      console.log('下载转写结果:', url)
+      console.log('下载 Fun-ASR 转写结果:', url)
       const response = await fetch(url)
 
       if (!response.ok) {
-        // 获取响应内容以便调试
         const text = await response.text()
         console.error(`下载失败 HTTP ${response.status}:`, text.substring(0, 500))
         throw new Error(`下载转写结果失败: HTTP ${response.status}`)
       }
 
+      const text = await response.text()
       const contentType = response.headers.get('content-type')
-      if (contentType?.includes('application/json')) {
-        return await response.json()
-      } else {
-        const text = await response.text()
-        console.log('响应类型:', contentType, '内容:', text.substring(0, 200))
-        return { text }
+      console.log('下载响应类型:', contentType, '内容前500字符:', text.substring(0, 500))
+
+      // 尝试解析为 JSON（OSS 有时不返回正确 content-type）
+      try {
+        return JSON.parse(text)
+      } catch {
+        // JSON 解析失败，可能是 XML 错误响应
+        console.error('JSON 解析失败，原始内容:', text.substring(0, 1000))
+        throw new Error(`转写结果不是有效 JSON，内容: ${text.substring(0, 200)}`)
       }
     } catch (error) {
       console.error('下载转写结果失败:', error)
@@ -246,81 +260,97 @@ export class QwenASRService implements ITranscriptionService {
   }
 
   /**
-   * 从千问响应解析转写结果
-   * @param response 千问任务响应
-   * @returns 标准化的转写结果
+   * 解析 Fun-ASR 转写结果
+   *
+   * Fun-ASR 结果结构：
+   * output.results[].transcription_url → 下载后得到：
+   * {
+   *   transcripts: [{
+   *     channel_id: 0,
+   *     text: "完整文本",
+   *     sentences: [{
+   *       begin_time: 100,   // 毫秒
+   *       end_time: 3820,    // 毫秒
+   *       text: "句子文本",
+   *       sentence_id: 1,
+   *       speaker_id: 0,     // 仅 diarization_enabled=true 时出现
+   *       words: [...]
+   *     }]
+   *   }]
+   * }
    */
-  async parseTranscriptionResult(response: QwenTaskResponse): Promise<TranscriptionResult> {
+  async parseTranscriptionResult(response: QwenTaskResponse): Promise<QwenTranscriptionResult> {
     let transcriptionText = ''
-    let segments: any[] = []
+    let segments: QwenSegment[] = []
 
-    // 千问返回的是转写结果URL
-    if (response.output.result?.transcription_url) {
-      const url = response.output.result.transcription_url
-      console.log('转写结果URL:', url)
+    // Fun-ASR 结果通过 output.results 数组返回
+    const results = response.output.results
+    if (results && results.length > 0) {
+      // 找到第一个成功的子任务
+      const successResult = results.find(r => r.subtask_status === 'SUCCEEDED')
+      if (!successResult?.transcription_url) {
+        // 检查是否有失败信息
+        const failedResult = results.find(r => r.subtask_status === 'FAILED')
+        if (failedResult) {
+          throw new Error(`子任务失败: ${failedResult.code} - ${failedResult.message}`)
+        }
+        throw new Error('未找到有效的转写结果 URL')
+      }
 
-      // 下载转写结果JSON
-      const resultData = await this.downloadTranscriptionResult(url)
-      console.log('转写结果数据:', JSON.stringify(resultData))
+      console.log('Fun-ASR 转写结果URL:', successResult.transcription_url)
+      const resultData = await this.downloadTranscriptionResult(successResult.transcription_url)
+      console.log('Fun-ASR 转写结果数据类型:', typeof resultData, '顶层字段:', Object.keys(resultData || {}))
+      console.log('Fun-ASR 转写结果数据（前500字符）:', JSON.stringify(resultData).substring(0, 500))
 
-      // 解析转写文本和分段信息 - 检查多种可能的格式
       if (resultData && typeof resultData === 'object') {
-        // 格式1: transcripts 数组
-        if (resultData.transcripts && Array.isArray(resultData.transcripts) && resultData.transcripts.length > 0) {
+        // Fun-ASR 标准格式：transcripts 数组
+        if (Array.isArray(resultData.transcripts) && resultData.transcripts.length > 0) {
           const transcript = resultData.transcripts[0]
           transcriptionText = transcript.text || ''
-          segments = transcript.sentences || []
+
+          if (Array.isArray(transcript.sentences)) {
+            segments = transcript.sentences.map((s: any) => ({
+              text: s.text || '',
+              begin_time: s.begin_time ?? 0,
+              end_time: s.end_time ?? 0,
+              speaker_id: s.speaker_id !== undefined ? s.speaker_id : undefined,
+              words: s.words,
+              channel_id: transcript.channel_id,
+            }))
+          }
         }
-        // 格式2: 直接有 text 字段
+        // 降级：直接有 text 字段
         else if (resultData.text) {
           transcriptionText = resultData.text
-        }
-        // 格式3: sentences 数组（每个句子有自己的text）
-        else if (resultData.sentences && Array.isArray(resultData.sentences)) {
-          transcriptionText = resultData.sentences.map((s: any) => s.text || '').join('')
-          segments = resultData.sentences
-        }
-        // 格式4: 遍历所有key找text
-        else {
-          const keys = Object.keys(resultData)
-          for (const key of keys) {
-            if (typeof resultData[key] === 'object' && resultData[key]?.text) {
-              transcriptionText = resultData[key].text
-              if (resultData[key].sentences) {
-                segments = resultData[key].sentences
-              }
-              break
-            }
+          if (Array.isArray(resultData.sentences)) {
+            segments = resultData.sentences.map((s: any) => ({
+              text: s.text || '',
+              begin_time: s.begin_time ?? 0,
+              end_time: s.end_time ?? 0,
+              speaker_id: s.speaker_id !== undefined ? s.speaker_id : undefined,
+              words: s.words,
+            }))
           }
         }
       }
-    } else if (response.output.url) {
-      // 旧版API可能直接返回url字段
-      console.log('转写结果URL (旧格式):', response.output.url)
-      const resultData = await this.downloadTranscriptionResult(response.output.url)
-      transcriptionText = resultData.text || JSON.stringify(resultData)
-    } else if (response.output.results && response.output.results.length > 0) {
-      // 某些情况下可能直接返回结果
-      const result = response.output.results[0]
-      transcriptionText = result.transcription || ''
     }
 
     if (!transcriptionText) {
-      console.error('无法解析转写结果，原始响应:', JSON.stringify(response))
+      console.error('无法解析 Fun-ASR 转写结果，原始响应:', JSON.stringify(response).substring(0, 500))
       throw new Error('转写结果为空，无法解析')
     }
 
     return {
       text: transcriptionText,
       segments,
-      language: 'auto', // 千问会自动检测语言
+      language: 'auto',
       duration: response.usage?.duration,
     }
   }
 }
 
 /**
- * 创建千问ASR服务实例
+ * 创建 Fun-ASR 服务实例
  */
 export function createQwenASRService(): QwenASRService {
   return new QwenASRService()

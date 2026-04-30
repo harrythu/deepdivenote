@@ -45,6 +45,8 @@ export async function GET(
           ? {
               id: meeting.transcription.id,
               fullText: meeting.transcription.fullText,
+              segments: meeting.transcription.segments ?? [],
+              speakerMap: (meeting.transcription.speakerMap as Record<string, string>) ?? {},
             }
           : null,
         summary: meeting.summary

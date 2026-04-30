@@ -16,7 +16,7 @@ export interface ApiResponse<T = any> {
 // 转写相关类型
 // ========================================
 
-// Whisper API 分段数据
+// Whisper API 分段数据（旧格式，保留兼容）
 export interface TranscriptionSegment {
   id: number
   seek: number
@@ -29,6 +29,47 @@ export interface TranscriptionSegment {
   compression_ratio: number
   no_speech_prob: number
 }
+
+// 通义 ASR 词级时间戳
+export interface QwenWord {
+  text: string
+  begin_time: number  // 毫秒
+  end_time: number    // 毫秒
+}
+
+// 通义 ASR 句子级分段（含说话人）- 原始 ASR 输出格式，用于 transcription-worker
+export interface QwenSegment {
+  text: string
+  begin_time: number  // 毫秒
+  end_time: number    // 毫秒
+  speaker_id?: string | number  // 说话人 ID（启用 diarization 后返回）
+  words?: QwenWord[]  // 词级时间戳（可选）
+  channel_id?: number // 声道 ID
+}
+
+/**
+ * 富文本分段 - 数据库存储格式（segments 字段）
+ * 包含原始文本和纠错后文本两个版本，时间戳和说话人永远不变
+ */
+export interface RichSegment {
+  // ASR 原始元数据（只读，永不修改）
+  begin_time: number        // 毫秒
+  end_time: number          // 毫秒
+  speaker_id?: number       // 说话人数字 ID，如 0、1、2
+  channel_id?: number
+  words?: QwenWord[]
+
+  // 文本双版本
+  original_text: string     // ASR 原始转写，只读
+  corrected_text?: string   // 纠错后文本，undefined 表示未纠错
+}
+
+/**
+ * 发言人名称映射
+ * key 为 speaker_id 的字符串形式，value 为用户设置的真实名称
+ * 例如: { "0": "张三", "1": "李四" }
+ */
+export type SpeakerMap = Record<string, string>
 
 // 转写服务接口
 export interface ITranscriptionService {
@@ -44,7 +85,7 @@ export interface TranscriptionOptions {
 
 export interface TranscriptionResult {
   text: string                        // 完整文本
-  segments?: TranscriptionSegment[]   // 分段数据
+  segments?: RichSegment[]            // 富文本分段（含时间戳、说话人、双版本文本）
   language?: string                   // 检测到的语言
   duration?: number                   // 音频时长
   confidence?: number                 // 平均置信度

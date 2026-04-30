@@ -14,7 +14,93 @@ import { toast } from 'sonner'
 import { Toaster } from '@/components/ui/sonner'
 import { VocabularySelector } from '@/components/VocabularySelector'
 import { UserMenu } from '@/components/auth/UserMenu'
-import { Plus, X, Copy, Check } from 'lucide-react'
+import { Plus, X, Copy, Check, User } from 'lucide-react'
+
+// 富文本分段类型（与数据库 RichSegment 对应）
+interface RichSegment {
+  begin_time: number
+  end_time: number
+  speaker_id?: number
+  channel_id?: number
+  original_text: string
+  corrected_text?: string
+}
+
+// 发言人名称映射
+type SpeakerMap = Record<string, string>
+
+/** 获取 segment 的展示文本（优先纠错后） */
+function getDisplayText(seg: RichSegment): string {
+  return seg.corrected_text ?? seg.original_text
+}
+
+/** 获取发言人展示名称 */
+function getSpeakerName(speakerId: number | undefined, speakerMap: SpeakerMap): string | null {
+  if (speakerId === undefined || speakerId === null) return null
+  return speakerMap[String(speakerId)] ?? `发言人${speakerId}`
+}
+
+/** 毫秒 → mm:ss 或 hh:mm:ss */
+function formatTimestamp(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+}
+
+const SPEAKER_COLORS = [
+  'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+  'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+  'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
+  'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+  'bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300',
+  'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+]
+
+function getSpeakerColor(speakerId: string | number | undefined): string {
+  if (speakerId === undefined || speakerId === null) return SPEAKER_COLORS[0]
+  return SPEAKER_COLORS[Number(speakerId) % SPEAKER_COLORS.length]
+}
+
+/** 分段列表展示组件 */
+function SegmentList({
+  segments,
+  speakerMap = {},
+  showCorrected = false,
+}: {
+  segments: RichSegment[]
+  speakerMap?: SpeakerMap
+  showCorrected?: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      {segments.map((seg, idx) => {
+        const speakerName = getSpeakerName(seg.speaker_id, speakerMap)
+        const text = showCorrected ? getDisplayText(seg) : seg.original_text
+        return (
+          <div key={idx} className="flex gap-3 items-start">
+            <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 w-12 text-right">
+              {formatTimestamp(seg.begin_time)}
+            </span>
+            {speakerName && (
+              <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full mt-0.5 ${getSpeakerColor(seg.speaker_id)}`}>
+                <User className="w-3 h-3" />
+                {speakerName}
+              </span>
+            )}
+            <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed flex-1">
+              {text}
+            </p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 // 深海主题 Logo
 function DeepDiveLogo({ className = "w-12 h-12" }: { className?: string }) {
@@ -82,13 +168,22 @@ export default function Home() {
   const [showVocabularySelector, setShowVocabularySelector] = useState(false)
   const [correcting, setCorrecting] = useState(false)
   const [originalText, setOriginalText] = useState('')
-  const [correctedText, setCorrectedText] = useState('')
+  const [segments, setSegments] = useState<RichSegment[]>([]) // 富文本分段（含 original_text / corrected_text）
+  const [correctedText, setCorrectedText] = useState('')      // 降级路径：无 segments 时的纯文本纠错结果
   const [corrections, setCorrections] = useState<any[]>([])
   const [meetingId, setMeetingId] = useState('')
   const [meetingTitle, setMeetingTitle] = useState('')
   const [meetingStatus, setMeetingStatus] = useState<string>('')
   const [loadingMeeting, setLoadingMeeting] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
+
+  // 发言人名称映射
+  const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({})
+  // 发言人编辑面板是否展开
+  const [showSpeakerEditor, setShowSpeakerEditor] = useState(false)
+  // 编辑中的临时 speakerMap（未保存）
+  const [editingSpeakerMap, setEditingSpeakerMap] = useState<SpeakerMap>({})
+  const [savingSpeakers, setSavingSpeakers] = useState(false)
 
   // 纪要相关状态
   const [generatingSummary, setGeneratingSummary] = useState(false)
@@ -107,7 +202,7 @@ export default function Home() {
   // 模型选择相关状态
   const [availableModels, setAvailableModels] = useState<{id: string; name: string; category: string; description: string; maxTokens: number}[]>([])
   const [selectedModel, setSelectedModel] = useState('openai/gpt-5.4-mini')
-  const [selectedCorrectionModel, setSelectedCorrectionModel] = useState('openai/gpt-5.4-mini')
+  const [selectedCorrectionModel, setSelectedCorrectionModel] = useState('openai/gpt-5.4')
   const [summaryCopied, setSummaryCopied] = useState(false)
 
   // 获取当前选中模型的分类
@@ -206,15 +301,80 @@ export default function Home() {
     }
   }
 
-  // 同步滚动
-  const originalRef = useRef<HTMLTextAreaElement>(null)
-  const correctedRef = useRef<HTMLTextAreaElement>(null)
+  // 同步滚动（挂载到分段列表容器 div 上）
+  const originalRef = useRef<HTMLDivElement>(null)
+  const correctedRef = useRef<HTMLDivElement>(null)
+  const originalTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const correctedTextareaRef = useRef<HTMLTextAreaElement>(null)
+  // 用 ref 追踪转写是否完成，避免 setInterval 闭包里读到 stale state
+  const transcriptionDoneRef = useRef(false)
 
-  // 轮询获取会议状态和转写结果
+  /**
+   * 将 API 返回的 segments 标准化为 RichSegment[]
+   * 兼容旧的 QwenSegment 格式（有 text 字段但无 original_text）
+   */
+  const normalizeSegments = (rawSegs: any[]): RichSegment[] => {
+    return rawSegs.map((seg) => {
+      if (typeof seg.original_text === 'string') {
+        return seg as RichSegment
+      }
+      return {
+        begin_time: seg.begin_time ?? 0,
+        end_time: seg.end_time ?? 0,
+        speaker_id: seg.speaker_id !== undefined ? Number(seg.speaker_id) : undefined,
+        channel_id: seg.channel_id,
+        words: seg.words,
+        original_text: seg.text ?? '',
+        corrected_text: undefined,
+      } as RichSegment
+    })
+  }
+
+  /** 从 segments 中提取所有出现过的 speaker_id */
+  const extractSpeakerIds = (segs: RichSegment[]): number[] => {
+    const ids = new Set<number>()
+    segs.forEach((seg) => {
+      if (seg.speaker_id !== undefined && seg.speaker_id !== null) {
+        ids.add(Number(seg.speaker_id))
+      }
+    })
+    return Array.from(ids).sort((a, b) => a - b)
+  }
+
+  /** 保存发言人名称到数据库 */
+  const saveSpeakerMap = async () => {
+    if (!meetingId) return
+    setSavingSpeakers(true)
+    try {
+      // 输入框为空时，回退为默认名称"发言人N"
+      const finalMap: SpeakerMap = {}
+      extractSpeakerIds(segments).forEach((id) => {
+        const name = editingSpeakerMap[String(id)]?.trim()
+        finalMap[String(id)] = name || `发言人${id}`
+      })
+      const res = await fetch(`/api/meetings/${meetingId}/speakers`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ speakerMap: finalMap }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setSpeakerMap(finalMap)
+      setEditingSpeakerMap(finalMap)
+      setShowSpeakerEditor(false)
+      toast.success('发言人名称已保存')
+    } catch (error) {
+      toast.error('保存失败')
+    } finally {
+      setSavingSpeakers(false)
+    }
+  }
+
   useEffect(() => {
     if (!meetingId) return
 
     let isMounted = true
+    transcriptionDoneRef.current = false
 
     const pollMeeting = async () => {
       try {
@@ -228,11 +388,26 @@ export default function Home() {
           setMeetingTitle(data.data.title)
           if (data.data.transcription) {
             setOriginalText(data.data.transcription.fullText)
+            // segments：只在首次加载时从服务端拉取，不覆盖纠错后的 corrected_text
+            setSegments(prev => {
+              if (prev.length > 0) return prev
+              const rawSegs = Array.isArray(data.data.transcription.segments)
+                ? data.data.transcription.segments
+                : []
+              return normalizeSegments(rawSegs)
+            })
+            // speakerMap：只在本地无数据时从服务端加载，不覆盖用户正在编辑的内容
+            setSpeakerMap(prev => {
+              if (Object.keys(prev).length > 0) return prev
+              return data.data.transcription.speakerMap ?? {}
+            })
             setTranscribing(false)
+            transcriptionDoneRef.current = true  // 标记转写完成，停止轮询
           } else if (data.data.status === 'COMPLETED') {
-            // 转写完成但没有内容
             setOriginalText('(转写完成，但未返回内容)')
+            setSegments([])
             setTranscribing(false)
+            transcriptionDoneRef.current = true
           }
         }
       } catch (error) {
@@ -243,8 +418,15 @@ export default function Home() {
     // 立即查询一次
     pollMeeting()
 
-    // 轮询直到转写完成
-    const interval = setInterval(pollMeeting, 3000)
+    // 轮询：转写完成后自动停止
+    const interval = setInterval(() => {
+      if (transcriptionDoneRef.current) {
+        clearInterval(interval)
+        return
+      }
+      pollMeeting()
+    }, 3000)
+
     return () => {
       isMounted = false
       clearInterval(interval)
@@ -252,10 +434,17 @@ export default function Home() {
   }, [meetingId])
 
   const handleScroll = (source: 'original' | 'corrected') => {
-    const sourceEl = source === 'original' ? originalRef.current : correctedRef.current
-    const targetEl = source === 'original' ? correctedRef.current : originalRef.current
+    // 支持 div（分段列表）和 textarea（纯文本降级）两种容器
+    const sourceEl = source === 'original'
+      ? (originalRef.current ?? originalTextareaRef.current)
+      : (correctedRef.current ?? correctedTextareaRef.current)
+    const targetEl = source === 'original'
+      ? (correctedRef.current ?? correctedTextareaRef.current)
+      : (originalRef.current ?? originalTextareaRef.current)
     if (sourceEl && targetEl) {
-      targetEl.scrollTop = sourceEl.scrollTop
+      // 按比例同步：两侧内容长度不同，按滚动比例对齐
+      const ratio = sourceEl.scrollTop / (sourceEl.scrollHeight - sourceEl.clientHeight || 1)
+      targetEl.scrollTop = ratio * (targetEl.scrollHeight - targetEl.clientHeight)
     }
   }
 
@@ -282,6 +471,7 @@ export default function Home() {
   // 重置所有状态以开始新的上传
   const resetForNewUpload = () => {
     setOriginalText('')
+    setSegments([])
     setCorrectedText('')
     setCorrections([])
     setSummaryResult(null)
@@ -289,6 +479,9 @@ export default function Home() {
     setTranscribing(false)
     setSelectedFile(null)
     setSelectedVocabulary([])
+    setSpeakerMap({})
+    setEditingSpeakerMap({})
+    setShowSpeakerEditor(false)
     toast.success('已准备开始新上传')
   }
 
@@ -416,17 +609,26 @@ export default function Home() {
         setMeetingTitle(data.data.title)
         if (data.data.transcription) {
           setOriginalText(data.data.transcription.fullText)
+          const rawSegs = Array.isArray(data.data.transcription.segments)
+            ? data.data.transcription.segments
+            : []
+          setSegments(normalizeSegments(rawSegs))
+          const sm = data.data.transcription.speakerMap ?? {}
+          setSpeakerMap(sm)
+          setEditingSpeakerMap(sm)
           setCorrectedText('')
           setCorrections([])
           setTranscribing(false)
           toast.success('加载成功')
         } else if (data.data.status === 'TRANSCRIBING' || data.data.status === 'PENDING' || data.data.status === 'UPLOADING') {
           setOriginalText('')
+          setSegments([])
           setCorrectedText('')
           setTranscribing(true)
           toast.success('转写进行中...')
         } else {
           setOriginalText('')
+          setSegments([])
           setCorrectedText('')
           setTranscribing(false)
           toast.error('该会议暂无转写记录')
@@ -463,9 +665,17 @@ export default function Home() {
       })
       console.log('【纠错】响应状态:', res.status)
       const data = await res.json()
-      console.log('【纠错】响应数据:', data)
+      console.log('��纠错】响应数据:', data)
       if (!res.ok) throw new Error(data.error)
-      setCorrectedText(data.data.correctedText)
+
+      // 主路径：API 返回了 correctedSegments（按 segment 纠错）
+      if (data.data.correctedSegments && Array.isArray(data.data.correctedSegments)) {
+        setSegments(data.data.correctedSegments as RichSegment[])
+        setCorrectedText(data.data.correctedText || '')
+      } else {
+        // 降级路径：无 segments，使用纯文本
+        setCorrectedText(data.data.correctedText || '')
+      }
       setCorrections(data.data.corrections || [])
       toast.success('纠错完成')
     } catch (error) {
@@ -478,8 +688,14 @@ export default function Home() {
 
   // 纪要生成处理
   const handleGenerateSummary = async () => {
-    // 使用纠错后的文字稿，如果没有则使用原文
-    const textToSummarize = correctedText || originalText
+    // 优先级：① segments 有 corrected_text → 拼接纠错后全文
+    //         ② correctedText（降级路径纯文本纠错结果）
+    //         ③ originalText（未纠错）
+    const hasCorrectedSegments = segments.some(s => s.corrected_text !== undefined)
+    const textToSummarize = hasCorrectedSegments
+      ? segments.map(s => s.corrected_text ?? s.original_text).join('')
+      : (correctedText || originalText)
+
     if (!textToSummarize) {
       toast.error('请先进行转写和纠错')
       return
@@ -503,6 +719,7 @@ export default function Home() {
           customPrompt,
           model: selectedModel,
           maxTokens: availableModels.find(m => m.id === selectedModel)?.maxTokens || 64000,
+          speakerMap,  // 传入发言人名称映射
         }),
       })
       console.log('【纪要】响应状态:', res.status)
@@ -686,6 +903,15 @@ export default function Home() {
             {/* 文字稿模式上传 */}
             {mode === 'text' && (
               <div className="space-y-4">
+                {/* 功能限制提示 */}
+                <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50">
+                  <svg className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+                    文字稿模式下，不支持区分发言人、多人会议总结功能，如需使用请上传音频。
+                  </p>
+                </div>
                 {/* 文字稿拖拽上传 */}
                 <div
                   {...getTextRootProps()}
@@ -817,6 +1043,7 @@ export default function Home() {
                               toast.success('上传成功！转写进行中...')
                               setMeetingId(response.data.meetingId)
                               setOriginalText('')
+                              setSegments([])
                               setCorrectedText('')
                               setCorrections([])
                               setSummaryResult(null)
@@ -965,7 +1192,7 @@ export default function Home() {
                     </h3>
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className="border-blue-300 text-blue-600 text-xs">
-                        qwen3-asr-flash-filetrans
+                        fun-asr
                       </Badge>
                       {transcribing ? (
                         <Badge variant="outline" className="border-blue-300 text-blue-600 animate-pulse">
@@ -975,6 +1202,25 @@ export default function Home() {
                         <Badge variant="outline" className="border-slate-300 dark:border-slate-700">
                           {originalText.length} 字
                         </Badge>
+                      )}
+                      {/* 发言人设置入口 - 转写完成后显示 */}
+                      {segments.length > 0 && extractSpeakerIds(segments).length > 0 && (
+                        <button
+                          onClick={() => {
+                            setEditingSpeakerMap({ ...speakerMap })
+                            setShowSpeakerEditor(true)
+                          }}
+                          className={`flex items-center gap-1.5 text-xs px-3 py-1 rounded-full font-medium transition-all ${
+                            Object.keys(speakerMap).length > 0
+                              ? 'bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-300 dark:border-violet-600 hover:bg-violet-200 dark:hover:bg-violet-900/60'
+                              : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-600 hover:bg-amber-100 dark:hover:bg-amber-900/50 animate-pulse-subtle'
+                          }`}
+                        >
+                          <User className="w-3 h-3" />
+                          {Object.keys(speakerMap).length > 0
+                            ? `已设置 ${Object.keys(speakerMap).length} 位发言人`
+                            : '设置发言人名称'}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -989,15 +1235,25 @@ export default function Home() {
                       </div>
                     ) : (
                       <>
-                        <textarea
-                          ref={originalRef}
-                          onScroll={() => handleScroll('original')}
-                          value={originalText}
-                          readOnly
-                          placeholder="加载会议后显示原始转写..."
-                          className="w-full h-80 p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-dashed border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-slate-300 dark:focus:ring-slate-600 cursor-text"
-                          title="此文本为只读模式，仅可复制"
-                        />
+                        {segments.length > 0 ? (
+                          <div
+                            ref={originalRef}
+                            onScroll={() => handleScroll('original')}
+                            className="w-full min-h-80 p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-dashed border-slate-300 dark:border-slate-700 overflow-y-auto max-h-80"
+                          >
+                            <SegmentList segments={segments} speakerMap={speakerMap} showCorrected={false} />
+                          </div>
+                        ) : (
+                          <textarea
+                            ref={originalTextareaRef}
+                            onScroll={() => handleScroll('original')}
+                            value={originalText}
+                            readOnly
+                            placeholder="加载会议后显示原始转写..."
+                            className="w-full h-80 p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-dashed border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-slate-300 dark:focus:ring-slate-600 cursor-text"
+                            title="此文本为只读模式，仅可复制"
+                          />
+                        )}
                         <p className="mt-2 text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
@@ -1017,12 +1273,18 @@ export default function Home() {
                       纠错后文字
                     </h3>
                     <div className="flex items-center gap-2">
-                      <Badge
-                        variant="outline"
-                        className={`border-slate-300 dark:border-slate-700 ${correctedText ? 'text-emerald-600 border-emerald-300' : ''}`}
-                      >
-                        {correctedText ? `${correctedText.length} 字` : '待纠错'}
-                      </Badge>
+                      {/* 判断是否有纠错后内容 */}
+                      {(() => {
+                        const hasCorrected = segments.some(s => s.corrected_text !== undefined) || !!correctedText
+                        return (
+                          <Badge
+                            variant="outline"
+                            className={`border-slate-300 dark:border-slate-700 ${hasCorrected ? 'text-emerald-600 border-emerald-300' : ''}`}
+                          >
+                            {hasCorrected ? '已纠错' : '待纠错'}
+                          </Badge>
+                        )
+                      })()}
                     </div>
                   </div>
                   <div className="relative">
@@ -1035,25 +1297,60 @@ export default function Home() {
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-slate-400"></div>
                         <p className="text-slate-600 dark:text-slate-400 text-sm">纠错进行中，请耐心等待</p>
                       </div>
-                    ) : (
+                    ) : segments.some(s => s.corrected_text !== undefined) ? (
+                      /* 主路径：segments 有 corrected_text，展示纠错后分段 */
+                      <>
+                        <div
+                          ref={correctedRef}
+                          onScroll={() => handleScroll('corrected')}
+                          className="w-full min-h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 overflow-y-auto max-h-80"
+                        >
+                          <SegmentList segments={segments} speakerMap={speakerMap} showCorrected={true} />
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          时间戳保留原始值，文字已纠错
+                        </p>
+                      </>
+                    ) : correctedText ? (
+                      /* 降级路径：无 segments，使用纯文本 */
                       <>
                         <textarea
-                          ref={correctedRef}
+                          ref={correctedTextareaRef}
                           onScroll={() => handleScroll('corrected')}
                           value={correctedText}
                           onChange={(e) => setCorrectedText(e.target.value)}
                           placeholder="纠错后显示在这里，可以手动编辑..."
                           className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-600 hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
                         />
-                        {correctedText && (
-                          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                            可以手动编辑，生成纪要时将使用最新内容
-                          </p>
-                        )}
+                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          可以手动编辑，生成纪要时将使用最新内容
+                        </p>
                       </>
+                    ) : segments.length > 0 ? (
+                      /* 纠错前预览：展示原始分段 */
+                      <div
+                        ref={correctedRef}
+                        onScroll={() => handleScroll('corrected')}
+                        className="w-full min-h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 overflow-y-auto max-h-80"
+                      >
+                        <p className="text-xs text-slate-400 mb-3">点击「开始纠错」后，纠错结果将在此处显示</p>
+                        <SegmentList segments={segments} speakerMap={speakerMap} showCorrected={false} />
+                      </div>
+                    ) : (
+                      <textarea
+                        ref={correctedTextareaRef}
+                        onScroll={() => handleScroll('corrected')}
+                        value={correctedText}
+                        onChange={(e) => setCorrectedText(e.target.value)}
+                        placeholder="纠错后显示在这里，可以手动编辑..."
+                        className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-slate-400 dark:focus:ring-slate-600 hover:border-slate-400 dark:hover:border-slate-600 transition-colors"
+                      />
                     )}
                   </div>
                 </div>
@@ -1396,6 +1693,13 @@ export default function Home() {
         .animate-fade-in {
           animation: fade-in 0.5s ease-out forwards;
         }
+        @keyframes pulse-subtle {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+        .animate-pulse-subtle {
+          animation: pulse-subtle 2s ease-in-out infinite;
+        }
         /* 嵌套列表样式 */
         .markdown-content ul {
           list-style-type: disc;
@@ -1418,6 +1722,73 @@ export default function Home() {
       `}</style>
       </div>
       <Toaster />
+
+      {/* 发言人名称编辑弹窗 */}
+      {showSpeakerEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowSpeakerEditor(false)}
+          />
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <User className="w-5 h-5" />
+                设置发言人名称
+              </h2>
+              <button
+                onClick={() => setShowSpeakerEditor(false)}
+                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                将自动识别的发言人编号替换为真实姓名，修改后原始稿和纠错稿均会更新。
+              </p>
+              {extractSpeakerIds(segments).map((id) => (
+                <div key={id} className="flex items-center gap-3">
+                  <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full ${getSpeakerColor(id)}`}>
+                    <User className="w-3 h-3" />
+                    发言人{id}
+                  </span>
+                  <span className="text-slate-400 text-sm">→</span>
+                  <input
+                    type="text"
+                    value={editingSpeakerMap[String(id)] ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setEditingSpeakerMap((prev) => ({
+                        ...prev,
+                        [String(id)]: val,
+                      }))
+                    }}
+                    placeholder={`发言人${id} 的真实姓名`}
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <Button
+                variant="outline"
+                onClick={() => setShowSpeakerEditor(false)}
+                className="flex-1"
+              >
+                取消
+              </Button>
+              <Button
+                onClick={saveSpeakerMap}
+                disabled={savingSpeakers}
+                className="flex-1 bg-slate-900 dark:bg-white text-white dark:text-slate-900"
+              >
+                {savingSpeakers ? '保存中...' : '保存'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 词汇选择弹窗 */}
       <VocabularySelector
