@@ -52,7 +52,7 @@ export class CorrectionService {
 
   /**
    * 按 RichSegment[] 逐条纠错（新主路径）
-   * LLM 按 [index] 格式接收，按 index 回填 corrected_text
+   * 分批发送给 LLM，每批 BATCH_SIZE 段，避免 JSON 输出被截断
    */
   async correctSegments(
     segments: RichSegment[],
@@ -64,35 +64,70 @@ export class CorrectionService {
 
     const { topic, vocabulary = [], model = 'openai/gpt-5.4', maxTokens = 128000 } = options
 
-    // 构造带编号的分段文本
-    const numberedText = segments
-      .map((seg, idx) => `[${idx}] ${seg.original_text}`)
-      .join('\n')
+    // 每批最多处理的段数（控制单次 JSON 输出量，避免被截断）
+    const BATCH_SIZE = 50
 
-    const prompt = this.buildSegmentPrompt(numberedText, topic, vocabulary)
-    console.log(`【分段纠错请求】模型: ${model}, 分段数: ${segments.length}, 文字长度: ${numberedText.length}`)
+    const allCorrectedSegments: RichSegment[] = [...segments]
+    const allCorrections: Correction[] = []
 
-    try {
-      const stream = await this.client.chat.completions.create({
-        model,
-        max_tokens: maxTokens,
-        messages: [{ role: 'user', content: prompt }],
-        stream: true,
-      })
+    const totalBatches = Math.ceil(segments.length / BATCH_SIZE)
+    console.log(`【分段纠错】共 ${segments.length} 段，分 ${totalBatches} 批处理，每批最多 ${BATCH_SIZE} 段，模型: ${model}`)
 
-      let fullText = ''
-      let chunkCount = 0
-      for await (const chunk of stream) {
-        chunkCount++
-        const content = chunk.choices[0]?.delta?.content
-        if (content) fullText += content
+    for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+      const start = batchIdx * BATCH_SIZE
+      const end = Math.min(start + BATCH_SIZE, segments.length)
+      const batchSegments = segments.slice(start, end)
+
+      // 构造带全局编号的分段文本（index 保持全局，方便回填）
+      const numberedText = batchSegments
+        .map((seg, i) => `[${start + i}] ${seg.original_text}`)
+        .join('\n')
+
+      const prompt = this.buildSegmentPrompt(numberedText, topic, vocabulary)
+      console.log(`【分段纠错】批次 ${batchIdx + 1}/${totalBatches}，段 ${start}-${end - 1}，输入长度: ${numberedText.length}`)
+
+      try {
+        const stream = await this.client.chat.completions.create({
+          model,
+          max_tokens: maxTokens,
+          messages: [{ role: 'user', content: prompt }],
+          stream: true,
+        })
+
+        let fullText = ''
+        let chunkCount = 0
+        for await (const chunk of stream) {
+          chunkCount++
+          const content = chunk.choices[0]?.delta?.content
+          if (content) fullText += content
+        }
+        console.log(`【分段纠错】批次 ${batchIdx + 1} 响应: ${chunkCount} chunks, ${fullText.length} 字符`)
+
+        // 解析本批结果，按全局 index 回填
+        const batchResult = this.parseSegmentResponse(fullText, batchSegments, start)
+        if (batchResult.correctedSegments) {
+          for (let i = 0; i < batchResult.correctedSegments.length; i++) {
+            allCorrectedSegments[start + i] = batchResult.correctedSegments[i]
+          }
+        }
+        allCorrections.push(...(batchResult.corrections || []))
+      } catch (error) {
+        console.error(`【分段纠错】批次 ${batchIdx + 1} 请求失败，保留原始内容:`, error)
+        // 本批失败时保留原始 segments，继续处理下一批
       }
-      console.log(`【分段纠错响应】收到 ${chunkCount} 个 chunk, 长度: ${fullText.length}`)
+    }
 
-      return this.parseSegmentResponse(fullText, segments)
-    } catch (error) {
-      console.error('【分段纠错请求失败】:', error)
-      throw error
+    const correctedText = allCorrectedSegments
+      .map(s => s.corrected_text ?? s.original_text)
+      .join('')
+
+    console.log(`【分段纠错完成】总 corrections: ${allCorrections.length}`)
+
+    return {
+      correctedText,
+      correctedSegments: allCorrectedSegments,
+      corrections: allCorrections,
+      tokensUsed: 0,
     }
   }
 
@@ -195,10 +230,14 @@ ${numberedText}
 
   /**
    * 解析分段纠错响应，回填 corrected_text
+   * @param text LLM 原始响应
+   * @param originalSegments 本批原始 segments
+   * @param globalOffset 本批在全局 segments 中的起始 index（用于匹配 LLM 返回的全局编号）
    */
   private parseSegmentResponse(
     text: string,
-    originalSegments: RichSegment[]
+    originalSegments: RichSegment[],
+    globalOffset: number = 0
   ): CorrectionResult {
     console.log('【分段纠错原始响应长度】:', text.length)
 
@@ -210,7 +249,7 @@ ${numberedText}
 
     const hasCompleteJson = trimmedText.startsWith('{') && trimmedText.endsWith('}')
     if (!hasCompleteJson) {
-      console.error('【分段纠错解析失败】JSON 不完整，返回原始 segments')
+      console.error('【分段纠错解析失败】JSON 不完整，保留本批原始 segments')
       return {
         correctedText: originalSegments.map(s => s.original_text).join(''),
         correctedSegments: originalSegments,
@@ -223,9 +262,10 @@ ${numberedText}
       const parsed = JSON.parse(trimmedText)
       const segmentResults: { index: number; text: string }[] = parsed.segments || []
 
-      // 按 index 回填 corrected_text，保留所有元数据
-      const correctedSegments: RichSegment[] = originalSegments.map((seg, idx) => {
-        const found = segmentResults.find(r => r.index === idx)
+      // 按全局 index 回填 corrected_text
+      const correctedSegments: RichSegment[] = originalSegments.map((seg, localIdx) => {
+        const globalIdx = globalOffset + localIdx
+        const found = segmentResults.find(r => r.index === globalIdx)
         return {
           ...seg,
           corrected_text: found ? found.text : seg.original_text,
@@ -236,7 +276,7 @@ ${numberedText}
         .map(s => s.corrected_text ?? s.original_text)
         .join('')
 
-      console.log(`【分段纠错解析结果】corrections 数量: ${parsed.corrections?.length || 0}`)
+      console.log(`【分段纠错解析结果】本批 corrections 数量: ${parsed.corrections?.length || 0}`)
 
       return {
         correctedText,

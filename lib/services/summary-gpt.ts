@@ -79,6 +79,30 @@ export class SummaryService {
     } catch (error) {
       console.warn('【纪要服务】加载投资人模板失败:', error)
     }
+
+    // 加载专家访谈-原始逐字稿模板 (Markdown 输出)
+    try {
+      const rawPath = path.join(process.cwd(), 'default_nosummary_prompt.txt')
+      if (fs.existsSync(rawPath)) {
+        const prompt = fs.readFileSync(rawPath, 'utf-8')
+        this.templates.set('interview-raw', { prompt, needsJson: false })
+        console.log('【纪要服务】已加载专家访谈-原始逐字稿模板')
+      }
+    } catch (error) {
+      console.warn('【纪要服务】加载专家访谈-原始逐字稿模板失败:', error)
+    }
+
+    // 加载多人会议-观点梳理模板 (Markdown 输出)
+    try {
+      const meetingPath = path.join(process.cwd(), 'default_meeting_prompt.txt')
+      if (fs.existsSync(meetingPath)) {
+        const prompt = fs.readFileSync(meetingPath, 'utf-8')
+        this.templates.set('meeting', { prompt, needsJson: false })
+        console.log('【纪要服务】已加载多人会议-观点梳理模板')
+      }
+    } catch (error) {
+      console.warn('【纪要服务】加载多人会议-观点梳理模板失败:', error)
+    }
   }
 
   /**

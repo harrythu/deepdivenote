@@ -195,6 +195,9 @@ export default function Home() {
     tags: string[]
   } | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState('interview')
+  // 场景分类 Tab：expert-interview | multi-meeting | investor-interview | user-custom
+  const [selectedCategory, setSelectedCategory] = useState<string>('expert-interview')
+  const [systemTemplates, setSystemTemplates] = useState<{id: string; name: string; content: string; category: string}[]>([])
   const [templateContent, setTemplateContent] = useState<Record<string, { name: string; content: string }>>({})
   const [userTemplates, setUserTemplates] = useState<{id: string; name: string; content: string}[]>([])
   const [showUserTemplatePicker, setShowUserTemplatePicker] = useState<{ show: boolean; x: number; y: number }>({ show: false, x: 0, y: 0 })
@@ -217,8 +220,18 @@ export default function Home() {
       try {
         const res = await fetch('/api/templates')
         const data = await res.json()
+        console.log('【模板加载】API 返回:', data)
         if (data.success) {
-          setTemplateContent(data.data)
+          // 新接口返回 { templates, categories }
+          const tpls = data.data.templates ?? data.data
+          console.log('【模板加载】解析后的模板列表:', tpls)
+          setSystemTemplates(tpls)
+          // 同时维护旧的 templateContent 格式（供 summary API 使用）
+          const contentMap: Record<string, { name: string; content: string }> = {}
+          for (const t of tpls) {
+            contentMap[t.id] = { name: t.name, content: t.content }
+          }
+          setTemplateContent(contentMap)
         }
       } catch (error) {
         console.error('加载模板失败:', error)
@@ -688,13 +701,27 @@ export default function Home() {
 
   // 纪要生成处理
   const handleGenerateSummary = async () => {
-    // 优先级：① segments 有 corrected_text → 拼接纠错后全文
-    //         ② correctedText（降级路径纯文本纠错结果）
-    //         ③ originalText（未纠错）
-    const hasCorrectedSegments = segments.some(s => s.corrected_text !== undefined)
-    const textToSummarize = hasCorrectedSegments
-      ? segments.map(s => s.corrected_text ?? s.original_text).join('')
-      : (correctedText || originalText)
+    let textToSummarize = ''
+
+    if (mode === 'audio' && segments.length > 0) {
+      // 音频模式：带时间戳 + 发言人，让 LLM 根据模板自行处理
+      const hasSpeakers = segments.some(s => s.speaker_id !== undefined)
+      textToSummarize = segments.map(seg => {
+        const text = seg.corrected_text ?? seg.original_text
+        const ts = formatTimestamp(seg.begin_time)
+        if (hasSpeakers && seg.speaker_id !== undefined) {
+          const speakerName = speakerMap[String(seg.speaker_id)] ?? `发言人${seg.speaker_id}`
+          return `[${ts}] ${speakerName}：${text}`
+        }
+        return `[${ts}] ${text}`
+      }).join('\n')
+    } else {
+      // 文字稿模式 / 降级路径：纯文本
+      const hasCorrectedSegments = segments.some(s => s.corrected_text !== undefined)
+      textToSummarize = hasCorrectedSegments
+        ? segments.map(s => s.corrected_text ?? s.original_text).join('')
+        : (correctedText || originalText)
+    }
 
     if (!textToSummarize) {
       toast.error('请先进行转写和纠错')
@@ -702,10 +729,11 @@ export default function Home() {
     }
 
     setGeneratingSummary(true)
-    console.log('【纪要】开始生成，使用模型:', selectedModel, '模板:', selectedTemplate)
+    console.log('【纪要】开始生成，使用模型:', selectedModel, '模板:', selectedTemplate, '模式:', mode, '文本长度:', textToSummarize.length)
     try {
-      // 检查是否选择了用户模板（investor是系统模板，不是用户模板）
-      const isUserTemplate = selectedTemplate !== 'interview' && selectedTemplate !== 'interview-less' && selectedTemplate !== 'investor'
+      // 检查是否选择了用户模板（系统模板 ID 集合）
+      const systemTemplateIds = new Set(systemTemplates.map(t => t.id))
+      const isUserTemplate = !systemTemplateIds.has(selectedTemplate)
       const customPrompt = isUserTemplate
         ? userTemplates.find(t => t.id === selectedTemplate)?.content
         : undefined
@@ -1431,7 +1459,7 @@ export default function Home() {
 
                   {/* 模板选择 */}
                   <div className="mb-4">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mb-3">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                         选择提示词模板
                       </label>
@@ -1444,60 +1472,90 @@ export default function Home() {
                         创作我的模板
                       </a>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {/* 系统模板 */}
-                      <button
-                        onClick={() => setSelectedTemplate('interview')}
-                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                          selectedTemplate === 'interview'
-                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
-                        }`}
-                      >
-                        专家访谈-逐字稿
-                      </button>
-                      <button
-                        onClick={() => setSelectedTemplate('interview-less')}
-                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                          selectedTemplate === 'interview-less'
-                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
-                        }`}
-                      >
-                        专家访谈-精炼版
-                      </button>
-                      <button
-                        onClick={() => setSelectedTemplate('investor')}
-                        className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                          selectedTemplate === 'investor'
-                            ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200'
-                        }`}
-                      >
-                        创业公司访谈
-                      </button>
-                      {/* 用户模板（最多显示5个） */}
-                      {userTemplates.slice(0, 5).map((t) => (
+
+                    {/* 场景 Tab */}
+                    <div className="flex gap-1 mb-3 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
+                      {[
+                        { id: 'expert-interview', label: '专家访谈' },
+                        { id: 'multi-meeting', label: '多人会议' },
+                        { id: 'investor-interview', label: '投资访谈' },
+                        { id: 'user-custom', label: '我的模板' },
+                      ].map((cat) => (
                         <button
-                          key={t.id}
-                          onClick={() => setSelectedTemplate(t.id)}
-                          className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                            selectedTemplate === t.id
-                              ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
-                              : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-transparent hover:bg-blue-100'
+                          key={cat.id}
+                          onClick={() => setSelectedCategory(cat.id)}
+                          className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                            selectedCategory === cat.id
+                              ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
+                              : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
                           }`}
                         >
-                          {t.name}
+                          {cat.label}
+                          {cat.id === 'user-custom' && userTemplates.length > 0 && (
+                            <span className="ml-1 text-xs text-slate-400">({userTemplates.length})</span>
+                          )}
                         </button>
                       ))}
-                      {/* 更多用户模板按钮 */}
-                      {userTemplates.length > 5 && (
-                        <button
-                          onClick={() => setShowUserTemplatePicker({ show: true, x: 0, y: 0 })}
-                          className="px-3 py-1.5 rounded-lg text-sm transition-colors bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200"
-                        >
-                          + 更多 ({userTemplates.length - 5})
-                        </button>
+                    </div>
+
+                    {/* 当前场景下的模板列表 */}
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCategory !== 'user-custom' ? (
+                        // 系统模板
+                        systemTemplates
+                          .filter(t => t.category === selectedCategory)
+                          .map((t) => (
+                            <button
+                              key={t.id}
+                              onClick={() => setSelectedTemplate(t.id)}
+                              className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                selectedTemplate === t.id
+                                  ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
+                                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200 dark:hover:bg-slate-700'
+                              }`}
+                            >
+                              {t.name}
+                            </button>
+                          ))
+                      ) : (
+                        // 用户自定义模板
+                        userTemplates.length === 0 ? (
+                          <div className="flex items-center gap-2 text-sm text-slate-400 dark:text-slate-500 py-1">
+                            <span>暂无自定义模板，</span>
+                            <a
+                              href="/settings/templates"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-700 underline"
+                            >
+                              去创建
+                            </a>
+                          </div>
+                        ) : (
+                          <>
+                            {userTemplates.slice(0, 5).map((t) => (
+                              <button
+                                key={t.id}
+                                onClick={() => setSelectedTemplate(t.id)}
+                                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                                  selectedTemplate === t.id
+                                    ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-300'
+                                    : 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-transparent hover:bg-blue-100 dark:hover:bg-blue-900/50'
+                                }`}
+                              >
+                                {t.name}
+                              </button>
+                            ))}
+                            {userTemplates.length > 5 && (
+                              <button
+                                onClick={() => setShowUserTemplatePicker({ show: true, x: 0, y: 0 })}
+                                className="px-3 py-1.5 rounded-lg text-sm transition-colors bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-transparent hover:bg-slate-200"
+                              >
+                                + 更多 ({userTemplates.length - 5})
+                              </button>
+                            )}
+                          </>
+                        )
                       )}
                     </div>
                   </div>
