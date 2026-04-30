@@ -26,7 +26,7 @@ export async function GET() {
 
     // 专家访谈场景模板
     const expertTemplates = [
-      { id: 'interview', file: 'default_summary_prompt.txt', name: '专家访谈-逐字稿' },
+      { id: 'interview', file: 'default_summary_prompt.txt', name: '专家访谈-详细版' },
       { id: 'interview-less', file: 'default_summary_less_prompt.txt', name: '专家访谈-精炼版' },
       { id: 'interview-raw', file: 'default_nosummary_prompt.txt', name: '专家访谈-原始逐字稿' },
     ]

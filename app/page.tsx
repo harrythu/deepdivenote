@@ -71,18 +71,65 @@ function SegmentList({
   segments,
   speakerMap = {},
   showCorrected = false,
+  activeIdx = -1,
+  onSegmentClick,
+  scrollContainerRef,
 }: {
   segments: RichSegment[]
   speakerMap?: SpeakerMap
   showCorrected?: boolean
+  activeIdx?: number
+  onSegmentClick?: (idx: number, beginTime: number) => void
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>
 }) {
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // activeIdx 变化时，将当前行滚动到容器中央
+  useEffect(() => {
+    if (activeIdx < 0) return
+    const row = rowRefs.current[activeIdx]
+    if (!row) return
+
+    const container = scrollContainerRef?.current ?? row.closest('.overflow-y-auto') as HTMLElement | null
+    if (!container) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    // 计算让 row 居中所需的 scrollTop
+    // 用 getBoundingClientRect 计算 row 相对于 container 的实际位置
+    const containerRect = container.getBoundingClientRect()
+    const rowRect = row.getBoundingClientRect()
+    const rowOffsetInContainer = rowRect.top - containerRect.top + container.scrollTop
+    const targetScrollTop = rowOffsetInContainer - container.clientHeight / 2 + rowRect.height / 2
+
+    // 只在当前行不在可视区域内时才滚动，避免频繁跳动
+    const rowTopInView = rowRect.top - containerRect.top
+    const rowBottomInView = rowRect.bottom - containerRect.top
+    const isVisible = rowTopInView >= 0 && rowBottomInView <= container.clientHeight
+    if (!isVisible) {
+      container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'instant' })
+    }
+  }, [activeIdx, scrollContainerRef])
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-0.5">
       {segments.map((seg, idx) => {
         const speakerName = getSpeakerName(seg.speaker_id, speakerMap)
         const text = showCorrected ? getDisplayText(seg) : seg.original_text
+        const isActive = idx === activeIdx
         return (
-          <div key={idx} className="flex gap-3 items-start">
+          <div
+            key={idx}
+            ref={el => { rowRefs.current[idx] = el }}
+            onClick={() => onSegmentClick?.(idx, seg.begin_time)}
+            className={`flex gap-3 items-start rounded-lg px-2 py-1 transition-colors ${
+              onSegmentClick ? 'cursor-pointer' : ''
+            } ${
+              isActive
+                ? 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-700/50'
+                : onSegmentClick ? 'hover:bg-slate-50 dark:hover:bg-slate-800/40' : ''
+            }`}
+          >
             <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 w-12 text-right">
               {formatTimestamp(seg.begin_time)}
             </span>
@@ -96,6 +143,68 @@ function SegmentList({
               {text}
             </p>
           </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/**
+ * 逐字稿渲染组件
+ * 解析 LLM 输出的 "[时间戳] 发言人：文字" 格式，渲染为带样式的对话行
+ */
+function TranscriptView({ content }: { content: string }) {
+  // 匹配 [时间戳] 发言人：文字 格式
+  const lineRegex = /^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s+(.+?)：(.+)$/
+
+  const lines = content.split('\n').filter(l => l.trim())
+
+  // 收集所有出现的发言人，分配颜色
+  const speakerColorMap: Record<string, string> = {}
+  const colorPool = [
+    'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
+    'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300',
+    'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300',
+    'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+    'bg-pink-100 text-pink-800 dark:bg-pink-900/40 dark:text-pink-300',
+    'bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-300',
+  ]
+  let colorIdx = 0
+  for (const line of lines) {
+    const m = line.match(lineRegex)
+    if (m && !speakerColorMap[m[2]]) {
+      speakerColorMap[m[2]] = colorPool[colorIdx % colorPool.length]
+      colorIdx++
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {lines.map((line, idx) => {
+        const m = line.match(lineRegex)
+        if (m) {
+          const [, ts, speaker, text] = m
+          const colorClass = speakerColorMap[speaker] ?? colorPool[0]
+          return (
+            <div key={idx} className="flex gap-3 items-start">
+              <span className="shrink-0 text-xs text-slate-400 dark:text-slate-500 font-mono mt-1 w-12 text-right">
+                {ts}
+              </span>
+              <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full mt-0.5 ${colorClass}`}>
+                <User className="w-3 h-3" />
+                {speaker}
+              </span>
+              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed flex-1">
+                {text}
+              </p>
+            </div>
+          )
+        }
+        // 非标准格式行（如空行、纯文字行）直接渲染
+        return (
+          <p key={idx} className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed pl-16">
+            {line}
+          </p>
         )
       })}
     </div>
@@ -177,6 +286,14 @@ export default function Home() {
   const [loadingMeeting, setLoadingMeeting] = useState(false)
   const [transcribing, setTranscribing] = useState(false)
 
+  // 音频播放相关状态
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [activeSegmentIdx, setActiveSegmentIdx] = useState(-1)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
   // 发言人名称映射
   const [speakerMap, setSpeakerMap] = useState<SpeakerMap>({})
   // 发言人编辑面板是否展开
@@ -193,6 +310,7 @@ export default function Home() {
     actionItems: any[]
     participants: string[]
     tags: string[]
+    template?: string
   } | null>(null)
   const [selectedTemplate, setSelectedTemplate] = useState('interview')
   // 场景分类 Tab：expert-interview | multi-meeting | investor-interview | user-custom
@@ -213,6 +331,66 @@ export default function Home() {
     const model = availableModels.find(m => `openai/${m.id}` === selectedModel || m.id === selectedModel)
     return model?.category || 'closed-source'
   }
+
+  // 初始化 audio 元素，绑定事件监听
+  useEffect(() => {
+    const audio = new Audio()
+    audioRef.current = audio
+
+    const onTimeUpdate = () => {
+      setCurrentTime(audio.currentTime)
+      // 根据当前播放时间找到对应的 segment
+      const currentMs = audio.currentTime * 1000
+      // 用 segments 的快照（通过闭包访问会有 stale 问题，改用 ref 传入）
+      setActiveSegmentIdx(prev => {
+        // 这里通过 DOM 事件触发，segments 可能是旧值，用函数式更新绕过
+        return prev // 实际更新在下面的 segmentsRef 里
+      })
+    }
+    const onDurationChange = () => setDuration(audio.duration || 0)
+    const onEnded = () => { setIsPlaying(false); setActiveSegmentIdx(-1) }
+    const onPause = () => setIsPlaying(false)
+    const onPlay = () => setIsPlaying(true)
+
+    audio.addEventListener('durationchange', onDurationChange)
+    audio.addEventListener('ended', onEnded)
+    audio.addEventListener('pause', onPause)
+    audio.addEventListener('play', onPlay)
+
+    return () => {
+      audio.removeEventListener('durationchange', onDurationChange)
+      audio.removeEventListener('ended', onEnded)
+      audio.removeEventListener('pause', onPause)
+      audio.removeEventListener('play', onPlay)
+      audio.pause()
+    }
+  }, [])
+
+  // 用 ref 保存最新的 segments，供 timeupdate 回调使用（避免 stale closure）
+  const segmentsRef = useRef<RichSegment[]>([])
+  useEffect(() => { segmentsRef.current = segments }, [segments])
+
+  // 绑定 timeupdate（依赖 segments 变化时重新绑定）
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    const onTimeUpdate = () => {
+      const currentMs = audio.currentTime * 1000
+      setCurrentTime(audio.currentTime)
+      const segs = segmentsRef.current
+      if (!segs.length) return
+      // 二分查找当前时间对应的 segment
+      let lo = 0, hi = segs.length - 1, found = 0
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (segs[mid].begin_time <= currentMs) { found = mid; lo = mid + 1 }
+        else hi = mid - 1
+      }
+      setActiveSegmentIdx(found)
+    }
+    audio.addEventListener('timeupdate', onTimeUpdate)
+    return () => audio.removeEventListener('timeupdate', onTimeUpdate)
+  }, [])
 
   // 加载模板内容
   useEffect(() => {
@@ -416,6 +594,10 @@ export default function Home() {
             })
             setTranscribing(false)
             transcriptionDoneRef.current = true  // 标记转写完成，停止轮询
+            // 转写完成后加载音频 URL（meetingId 从闭包外层 state 读取）
+            if (!audioUrl) {
+              fetchAudioUrl(meetingId)
+            }
           } else if (data.data.status === 'COMPLETED') {
             setOriginalText('(转写完成，但未返回内容)')
             setSegments([])
@@ -609,6 +791,48 @@ export default function Home() {
   }
 
   // 加载会议
+  // 获取音频签名 URL
+  const fetchAudioUrl = async (id: string) => {
+    try {
+      console.log('【音频】开始获取签名 URL, meetingId:', id)
+      const res = await fetch(`/api/meetings/${id}/audio-url`)
+      const data = await res.json()
+      console.log('【音频】API 返回:', data)
+      if (data.success) {
+        setAudioUrl(data.data.url)
+        if (audioRef.current) {
+          audioRef.current.src = data.data.url
+        }
+        console.log('【音频】URL 设置成功')
+      } else {
+        console.log('【音频】无音频文件:', data.error)
+      }
+    } catch (e) {
+      console.error('【音频】获取 URL 失败:', e)
+    }
+  }
+
+  // 点击 segment 行：跳转到对应时间并播放
+  const handleSegmentClick = (idx: number, beginTime: number) => {
+    if (!audioRef.current || !audioUrl) return
+    audioRef.current.currentTime = beginTime / 1000
+    audioRef.current.play()
+    setIsPlaying(true)
+    setActiveSegmentIdx(idx)
+  }
+
+  // 播放/暂停切换
+  const togglePlayPause = () => {
+    if (!audioRef.current) return
+    if (isPlaying) {
+      audioRef.current.pause()
+      setIsPlaying(false)
+    } else {
+      audioRef.current.play()
+      setIsPlaying(true)
+    }
+  }
+
   const loadMeeting = async () => {
     if (!meetingId.trim()) {
       toast.error('请输入会议ID')
@@ -633,6 +857,9 @@ export default function Home() {
           setCorrections([])
           setTranscribing(false)
           toast.success('加载成功')
+          // 同时加载音频 URL（先清空旧值，再重新获取）
+          setAudioUrl(null)
+          fetchAudioUrl(meetingId)
         } else if (data.data.status === 'TRANSCRIBING' || data.data.status === 'PENDING' || data.data.status === 'UPLOADING') {
           setOriginalText('')
           setSegments([])
@@ -754,7 +981,7 @@ export default function Home() {
       const data = await res.json()
       console.log('【纪要】响应数据:', data)
       if (!res.ok) throw new Error(data.error)
-      setSummaryResult(data.data)
+      setSummaryResult({ ...data.data, template: selectedTemplate })
       toast.success('纪要生成完成')
     } catch (error) {
       console.error('【纪要】错误:', error)
@@ -1209,6 +1436,47 @@ export default function Home() {
                 </CardContent>
               </Card>
 
+              {/* 音频播放控制栏（有音频时显示，位于双栏上方） */}
+              {audioUrl && segments.length > 0 && (
+                <div className="flex items-center gap-3 mb-4 px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={togglePlayPause}
+                    className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-500 hover:bg-amber-600 text-white transition-colors shrink-0"
+                  >
+                    {isPlaying ? (
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                      </svg>
+                    ) : (
+                      <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z"/>
+                      </svg>
+                    )}
+                  </button>
+                  <span className="text-xs font-mono text-slate-500 dark:text-slate-400 shrink-0 w-24">
+                    {formatTimestamp(currentTime * 1000)}
+                    {duration > 0 && ` / ${formatTimestamp(duration * 1000)}`}
+                  </span>
+                  <div
+                    className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden cursor-pointer"
+                    onClick={(e) => {
+                      if (!audioRef.current || !duration) return
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const ratio = (e.clientX - rect.left) / rect.width
+                      audioRef.current.currentTime = ratio * duration
+                    }}
+                  >
+                    <div
+                      className="h-full bg-amber-400 rounded-full transition-all"
+                      style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 shrink-0">
+                    点击转写行跳转播放
+                  </span>
+                </div>
+              )}
+
               {/* 双栏对比 */}
               <div className="grid md:grid-cols-2 gap-6">
                 {/* 原文 */}
@@ -1269,7 +1537,14 @@ export default function Home() {
                             onScroll={() => handleScroll('original')}
                             className="w-full min-h-80 p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 border border-dashed border-slate-300 dark:border-slate-700 overflow-y-auto max-h-80"
                           >
-                            <SegmentList segments={segments} speakerMap={speakerMap} showCorrected={false} />
+                            <SegmentList
+                              segments={segments}
+                              speakerMap={speakerMap}
+                              showCorrected={false}
+                              activeIdx={audioUrl ? activeSegmentIdx : -1}
+                              onSegmentClick={audioUrl ? handleSegmentClick : undefined}
+                              scrollContainerRef={originalRef}
+                            />
                           </div>
                         ) : (
                           <textarea
@@ -1361,14 +1636,12 @@ export default function Home() {
                         </p>
                       </>
                     ) : segments.length > 0 ? (
-                      /* 纠错前预览：展示原始分段 */
-                      <div
-                        ref={correctedRef}
-                        onScroll={() => handleScroll('corrected')}
-                        className="w-full min-h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 overflow-y-auto max-h-80"
-                      >
-                        <p className="text-xs text-slate-400 mb-3">点击「开始纠错」后，纠错结果将在此处显示</p>
-                        <SegmentList segments={segments} speakerMap={speakerMap} showCorrected={false} />
+                      /* 有转写内容但未纠错：显示空白占位，引导用户点击纠错 */
+                      <div className="w-full h-80 p-4 rounded-xl bg-white dark:bg-slate-900 border border-dashed border-slate-200 dark:border-slate-700 flex flex-col items-center justify-center gap-3 text-center">
+                        <svg className="w-10 h-10 text-slate-200 dark:text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <p className="text-sm text-slate-400 dark:text-slate-500">点击「开始纠错」后，纠错结果将在此处显示</p>
                       </div>
                     ) : (
                       <textarea
@@ -1622,15 +1895,23 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* 摘要 - Markdown 内容 */}
+                    {/* 摘要 - 根据模板类型切换渲染方式 */}
                     {summaryResult.content && (
                       <div className="mb-6">
-                        <h4 className="text-sm font-medium text-slate-500 mb-2">纪要内容</h4>
-                        <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 markdown-content">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {summaryResult.content}
-                          </ReactMarkdown>
-                        </div>
+                        <h4 className="text-sm font-medium text-slate-500 mb-2">
+                          {summaryResult.template === 'interview-raw' ? '逐字稿（已清洗）' : '纪要内容'}
+                        </h4>
+                        {summaryResult.template === 'interview-raw' ? (
+                          <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50">
+                            <TranscriptView content={summaryResult.content} />
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-lg bg-slate-50 dark:bg-slate-900/50 markdown-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {summaryResult.content}
+                            </ReactMarkdown>
+                          </div>
+                        )}
                       </div>
                     )}
 

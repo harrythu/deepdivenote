@@ -168,13 +168,13 @@
 }
 
 .markdown-content ul {
-  @apply list-disc list-inside my-3 space-y-1;
+  @apply list-disc list-outside my-3 space-y-1 pl-5;
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
 
 .markdown-content ol {
-  @apply list-decimal list-inside my-3 space-y-1;
+  @apply list-decimal list-outside my-3 space-y-1 pl-5;
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -187,7 +187,7 @@
 
 .markdown-content li > ul,
 .markdown-content li > ol {
-  @apply mt-1 ml-4;
+  @apply mt-1 ml-2;
 }
 
 .markdown-content code {
